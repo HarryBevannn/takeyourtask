@@ -1,36 +1,44 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# TakeYourTask
 
-## Getting Started
+A live task board for housekeeping and facilities teams. Managers create and assign jobs, staff
+move them across the board, and everyone sees changes instantly.
 
-First, run the development server:
+- **Live board:** drag jobs between columns; every change appears on teammates' screens immediately
+- **Notifications:** bell menu, pop-up toasts and desktop alerts when you're assigned a job, one of
+  your jobs moves, or someone comments
+- **Presence:** see who's online right now
+- **Job cards:** location, assignee, priority, due date, checklist and comments
+- **Workspaces:** each company gets its own private board; teammates join with an invite code
+- **Roles:** managers create, delete and assign jobs and manage columns; staff update jobs
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+Built with Next.js, Supabase (Postgres, auth, realtime) and Tailwind CSS.
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Setup
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+1. **Create a Supabase project** at [supabase.com](https://supabase.com) (the free tier is fine).
+2. **Create the database:** in the Supabase dashboard open **SQL Editor**, paste in
+   [`supabase/schema.sql`](supabase/schema.sql) and click **Run**.
+3. **Connect the app:** copy `.env.local.example` to `.env.local` and fill in the project URL and
+   anon (publishable) key from **Project Settings → API**.
+4. **Run it:**
+   ```bash
+   npm install
+   npm run dev
+   ```
+   Open http://localhost:3000, create an account, then create a workspace.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Supabase asks new users to confirm their email by default. For quicker local testing you can turn
+that off under **Authentication → Sign In / Providers → Email → Confirm email**.
 
-## Learn More
+## How it works
 
-To learn more about Next.js, take a look at the following resources:
+| Piece | Where |
+|---|---|
+| Tables, security rules, notification triggers | `supabase/schema.sql` |
+| Board, live subscriptions, presence, notifications | `src/components/BoardApp.tsx` |
+| Drag and drop | `src/components/Board.tsx` |
+| Job detail panel | `src/components/TaskModal.tsx` |
+| Liquid glass styles | `src/app/globals.css` |
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Security is enforced in the database with row-level security, so a user can only ever read or
+change data in workspaces they belong to, whatever the browser sends.
