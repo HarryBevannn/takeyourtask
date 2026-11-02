@@ -3,18 +3,19 @@
 import { useEffect, useState } from "react";
 import { Check, MapPin, Send, Trash2, X } from "lucide-react";
 import Avatar from "./Avatar";
-import type { ChecklistItem, Column, Comment, Member, Priority, Task } from "@/lib/types";
-import { PRIORITIES, byPosition, displayName, timeAgo } from "@/lib/utils";
+import type { ChecklistItem, Column, Comment, FieldConfig, Member, Priority, Task } from "@/lib/types";
+import { PRIORITIES, PRIORITY_ORDER, byPosition, displayName, timeAgo } from "@/lib/utils";
 
 interface TaskModalProps {
   task: Task;
   prefix: string;
+  fields: FieldConfig;
   columns: Column[];
   members: Member[];
   checklist: ChecklistItem[];
   comments: Comment[];
   currentUserId: string;
-  isManager: boolean;
+  canDelete: boolean;
   onClose: () => void;
   onUpdate: (patch: Partial<Task>) => void;
   onDelete: () => void;
@@ -25,7 +26,7 @@ interface TaskModalProps {
 }
 
 export default function TaskModal(props: TaskModalProps) {
-  const { task, prefix, columns, members, checklist, comments, isManager, onClose, onUpdate } = props;
+  const { task, prefix, fields, columns, members, checklist, comments, canDelete, onClose, onUpdate } = props;
   const [newItem, setNewItem] = useState("");
   const [comment, setComment] = useState("");
   const [sending, setSending] = useState(false);
@@ -66,7 +67,7 @@ export default function TaskModal(props: TaskModalProps) {
             {prefix}-{task.number}
           </span>
           <div className="ml-auto flex items-center gap-1">
-            {isManager && (
+            {canDelete && (
               <button
                 className="btn btn-ghost text-danger"
                 onClick={() => {
@@ -237,20 +238,22 @@ export default function TaskModal(props: TaskModalProps) {
               </select>
             </Field>
 
-            <Field label="Priority">
-              <select
-                className="input"
-                value={task.priority}
-                onChange={(e) => onUpdate({ priority: e.target.value as Priority })}
-                style={{ color: PRIORITIES[task.priority].color }}
-              >
-                {(Object.keys(PRIORITIES) as Priority[]).map((p) => (
-                  <option key={p} value={p}>
-                    {PRIORITIES[p].label}
-                  </option>
-                ))}
-              </select>
-            </Field>
+            {fields.showPriority && (
+              <Field label="Priority">
+                <select
+                  className="input"
+                  value={task.priority}
+                  onChange={(e) => onUpdate({ priority: e.target.value as Priority })}
+                  style={{ color: PRIORITIES[task.priority].color }}
+                >
+                  {PRIORITY_ORDER.map((p) => (
+                    <option key={p} value={p}>
+                      {fields.priorityLabels[p]}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            )}
 
             <Field label="Due date">
               <input
@@ -261,19 +264,21 @@ export default function TaskModal(props: TaskModalProps) {
               />
             </Field>
 
-            <Field label="Location">
-              <div className="relative">
-                <MapPin size={14} className="absolute top-1/2 left-3 -translate-y-1/2 text-faint" />
-                <input
-                  key={`loc:${textKey}`}
-                  className="input pl-8"
-                  placeholder="Room, floor or area"
-                  defaultValue={task.location}
-                  maxLength={120}
-                  onBlur={(e) => e.target.value !== task.location && onUpdate({ location: e.target.value })}
-                />
-              </div>
-            </Field>
+            {fields.showLocation && (
+              <Field label={fields.locationLabel}>
+                <div className="relative">
+                  <MapPin size={14} className="absolute top-1/2 left-3 -translate-y-1/2 text-faint" />
+                  <input
+                    key={`loc:${textKey}`}
+                    className="input pl-8"
+                    placeholder={fields.locationLabel === "Location" ? "Room, floor or area" : fields.locationLabel}
+                    defaultValue={task.location}
+                    maxLength={120}
+                    onBlur={(e) => e.target.value !== task.location && onUpdate({ location: e.target.value })}
+                  />
+                </div>
+              </Field>
+            )}
 
             <p className="pt-2 text-xs text-faint">
               Created {timeAgo(task.created_at)}

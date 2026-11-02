@@ -6,11 +6,12 @@ import { LayoutGrid, UserPlus } from "lucide-react";
 import Logo from "@/components/Logo";
 import SetupNotice from "@/components/SetupNotice";
 import { supabase, supabaseConfigured } from "@/lib/supabase";
-import { WORKSPACE_KEY } from "@/lib/utils";
+import { COLUMN_TEMPLATES, WORKSPACE_KEY } from "@/lib/utils";
 
 export default function OnboardingPage() {
   const router = useRouter();
   const [name, setName] = useState("");
+  const [templateId, setTemplateId] = useState(COLUMN_TEMPLATES[0].id);
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState<"create" | "join" | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -24,7 +25,9 @@ export default function OnboardingPage() {
 
   if (!supabaseConfigured) return <SetupNotice />;
 
-  async function finish(rpc: "create_workspace" | "join_workspace", args: Record<string, string>) {
+  const template = COLUMN_TEMPLATES.find((t) => t.id === templateId) ?? COLUMN_TEMPLATES[0];
+
+  async function finish(rpc: "create_workspace" | "join_workspace", args: Record<string, string | string[]>) {
     setBusy(rpc === "create_workspace" ? "create" : "join");
     setError(null);
     const { data, error } = await supabase.rpc(rpc, args);
@@ -56,7 +59,7 @@ export default function OnboardingPage() {
             className="glass-strong pop-in rounded-3xl p-7"
             onSubmit={(e) => {
               e.preventDefault();
-              finish("create_workspace", { ws_name: name });
+              finish("create_workspace", { ws_name: name, column_names: template.columns });
             }}
           >
             <LayoutGrid className="text-accent" size={26} />
@@ -72,6 +75,21 @@ export default function OnboardingPage() {
               maxLength={80}
               required
             />
+            <span className="label mt-4">Starting columns</span>
+            <div className="flex flex-wrap gap-1.5">
+              {COLUMN_TEMPLATES.map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  className={`btn py-1 text-xs ${t.id === templateId ? "btn-primary" : ""}`}
+                  aria-pressed={t.id === templateId}
+                  onClick={() => setTemplateId(t.id)}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+            <p className="mt-2 text-xs text-faint">{template.columns.join(" → ")}</p>
             <button type="submit" className="btn btn-primary mt-4 w-full" disabled={busy !== null}>
               {busy === "create" ? "Creating…" : "Create workspace"}
             </button>

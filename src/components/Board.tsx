@@ -16,7 +16,7 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { SortableContext, arrayMove, sortableKeyboardCoordinates, verticalListSortingStrategy } from "@dnd-kit/sortable";
-import { Plus, Trash2 } from "lucide-react";
+import { CheckCircle2, Plus, Trash2 } from "lucide-react";
 import TaskCard, { TaskCardBody, type CardExtras } from "./TaskCard";
 import type { Column, Task } from "@/lib/types";
 import { byPosition, positionBetween } from "@/lib/utils";
@@ -24,7 +24,11 @@ import { byPosition, positionBetween } from "@/lib/utils";
 interface BoardProps {
   columns: Column[];
   tasks: Task[];
-  isManager: boolean;
+  canCreate: boolean;
+  canManageColumns: boolean;
+  /** The last column, where finished work lands. */
+  doneColumnId?: string;
+  itemName: string;
   extrasFor: (task: Task) => CardExtras;
   onOpen: (id: string) => void;
   onMove: (id: string, columnId: string, position: number) => void;
@@ -48,7 +52,7 @@ function columnOf(id: string, list: Task[]) {
 }
 
 export default function Board(props: BoardProps) {
-  const { columns, tasks, isManager, extrasFor, onMove } = props;
+  const { columns, tasks, canManageColumns, extrasFor, onMove } = props;
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 180, tolerance: 6 } }),
@@ -138,7 +142,7 @@ export default function Board(props: BoardProps) {
         {columns.map((col) => (
           <BoardColumn key={col.id} {...props} column={col} tasks={byColumn.get(col.id) ?? []} />
         ))}
-        {isManager && <AddColumn onAdd={props.onAddColumn} />}
+        {canManageColumns && <AddColumn onAdd={props.onAddColumn} />}
       </div>
 
       <DragOverlay dropAnimation={{ duration: 180, easing: "cubic-bezier(.2,.8,.2,1)" }}>
@@ -151,7 +155,10 @@ export default function Board(props: BoardProps) {
 function BoardColumn({
   column,
   tasks,
-  isManager,
+  canCreate,
+  canManageColumns,
+  doneColumnId,
+  itemName,
   extrasFor,
   onOpen,
   onCreate,
@@ -196,16 +203,21 @@ function BoardColumn({
         ) : (
           <h2
             className="text-xs font-semibold tracking-[0.08em] text-muted uppercase"
-            onDoubleClick={() => isManager && setRenaming(true)}
-            title={isManager ? "Double-click to rename" : undefined}
+            onDoubleClick={() => canManageColumns && setRenaming(true)}
+            title={canManageColumns ? "Double-click to rename" : undefined}
           >
             {column.name}
           </h2>
         )}
-        <span className="rounded-full bg-white/10 px-2 py-0.5 text-[0.7rem] font-semibold text-muted">
+        <span
+          className={`flex items-center gap-1 rounded-full px-2 py-0.5 text-[0.7rem] font-semibold ${
+            column.id === doneColumnId ? "bg-success/15 text-success" : "bg-white/10 text-muted"
+          }`}
+        >
+          {column.id === doneColumnId && <CheckCircle2 size={11} strokeWidth={2.5} />}
           {tasks.length}
         </span>
-        {isManager && tasks.length === 0 && !renaming && (
+        {canManageColumns && tasks.length === 0 && !renaming && (
           <button
             className="ml-auto rounded-lg p-1 text-faint opacity-0 transition group-hover:opacity-100 hover:text-danger"
             onClick={() => onDeleteColumn(column.id)}
@@ -223,7 +235,7 @@ function BoardColumn({
           ))}
         </SortableContext>
 
-        {isManager &&
+        {canCreate &&
           (adding ? (
             <div className="glass-card rounded-2xl p-2">
               <textarea
@@ -249,7 +261,7 @@ function BoardColumn({
             </div>
           ) : (
             <button className="btn btn-ghost justify-start text-muted" onClick={() => setAdding(true)}>
-              <Plus size={16} /> Create job
+              <Plus size={16} /> Create {itemName}
             </button>
           ))}
       </div>

@@ -17,7 +17,22 @@ create table public.workspaces (
     default upper(substr(md5(random()::text || clock_timestamp()::text), 1, 8)),
   task_counter int not null default 0,
   created_by uuid references auth.users on delete set null,
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  -- Per-company settings, editable by managers.
+  logo_url text check (logo_url ~ '^https://'),
+  accent_color text check (accent_color ~ '^#[0-9a-fA-F]{6}$'),
+  location_label text not null default 'Location' check (char_length(trim(location_label)) between 1 and 30),
+  show_location boolean not null default true,
+  show_priority boolean not null default true,
+  priority_labels jsonb not null default '{}' check (jsonb_typeof(priority_labels) = 'object'),
+  default_priority text not null default 'medium' check (default_priority in ('low', 'medium', 'high', 'urgent')),
+  staff_can_create_tasks boolean not null default false,
+  staff_can_delete_tasks boolean not null default false,
+  staff_can_manage_columns boolean not null default false,
+  -- Task IDs read <key_prefix>-<number>; stored so renaming the workspace doesn't change them.
+  key_prefix text not null default 'TYT' check (key_prefix ~ '^[A-Z]{2,5}$'),
+  item_name text not null default 'job' check (char_length(trim(item_name)) between 1 and 20),
+  item_name_plural text not null default 'jobs' check (char_length(trim(item_name_plural)) between 1 and 20)
 );
 
 create table public.workspace_members (
@@ -114,6 +129,20 @@ language sql stable security definer set search_path = public as $$
   );
 $$;
 
+-- Managers can always; staff only when the workspace switches that permission on.
+create function public.has_permission(ws uuid, action text) returns boolean
+language sql stable security definer set search_path = public as $$
+  select exists (
+    select 1 from workspace_members m join workspaces w on w.id = m.workspace_id
+    where m.workspace_id = ws and m.user_id = auth.uid()
+      and (m.role = 'manager' or case action
+        when 'create_tasks' then w.staff_can_create_tasks
+        when 'delete_tasks' then w.staff_can_delete_tasks
+        when 'manage_columns' then w.staff_can_manage_columns
+        else false end)
+  );
+$$;
+
 -- ─── Row-level security: people only ever see their own workspaces ─────────
 
 alter table public.profiles enable row level security;
@@ -144,18 +173,19 @@ create policy "managers remove members, anyone can leave" on public.workspace_me
 
 create policy "members see columns" on public.board_columns for select
   using (public.is_member(workspace_id));
-create policy "managers add columns" on public.board_columns for insert
-  with check (public.is_manager(workspace_id));
-create policy "managers edit columns" on public.board_columns for update
-  using (public.is_manager(workspace_id)) with check (public.is_manager(workspace_id));
-create policy "managers delete columns" on public.board_columns for delete
-  using (public.is_manager(workspace_id));
+create policy "permitted members add columns" on public.board_columns for insert
+  with check (public.has_permission(workspace_id, 'manage_columns'));
+create policy "permitted members edit columns" on public.board_columns for update
+  using (public.has_permission(workspace_id, 'manage_columns'))
+  with check (public.has_permission(workspace_id, 'manage_columns'));
+create policy "permitted members delete columns" on public.board_columns for delete
+  using (public.has_permission(workspace_id, 'manage_columns'));
 
 create policy "members see tasks" on public.tasks for select
   using (public.is_member(workspace_id));
-create policy "managers create tasks" on public.tasks for insert
+create policy "permitted members create tasks" on public.tasks for insert
   with check (
-    public.is_manager(workspace_id)
+    public.has_permission(workspace_id, 'create_tasks')
     and exists (select 1 from board_columns c where c.id = column_id and c.workspace_id = tasks.workspace_id)
   );
 create policy "members update tasks" on public.tasks for update
@@ -164,8 +194,8 @@ create policy "members update tasks" on public.tasks for update
     public.is_member(workspace_id)
     and exists (select 1 from board_columns c where c.id = column_id and c.workspace_id = tasks.workspace_id)
   );
-create policy "managers delete tasks" on public.tasks for delete
-  using (public.is_manager(workspace_id));
+create policy "permitted members delete tasks" on public.tasks for delete
+  using (public.has_permission(workspace_id, 'delete_tasks'));
 
 create policy "members see checklist" on public.checklist_items for select
   using (public.is_member(workspace_id));
@@ -211,15 +241,21 @@ create trigger on_auth_user_created
 
 -- ─── Workspaces: create one, or join one with an invite code ──────────────
 
-create function public.create_workspace(ws_name text) returns uuid
+create function public.create_workspace(ws_name text, column_names text[] default null) returns uuid
 language plpgsql security definer set search_path = public as $$
-declare ws uuid;
+declare
+  ws uuid;
+  letters text := upper(left(regexp_replace(ws_name, '[^a-zA-Z]', '', 'g'), 3));
 begin
   if auth.uid() is null then raise exception 'Not signed in'; end if;
-  insert into workspaces (name, created_by) values (trim(ws_name), auth.uid()) returning id into ws;
+  if cardinality(column_names) > 12 then raise exception 'A board can start with at most 12 columns'; end if;
+  if coalesce(cardinality(column_names), 0) = 0 then column_names := array['To do', 'In progress', 'Done']; end if;
+  insert into workspaces (name, created_by, key_prefix)
+    values (trim(ws_name), auth.uid(), case when char_length(letters) >= 2 then letters else 'TYT' end)
+    returning id into ws;
   insert into workspace_members (workspace_id, user_id, role) values (ws, auth.uid(), 'manager');
   insert into board_columns (workspace_id, name, position)
-    values (ws, 'To do', 1), (ws, 'In progress', 2), (ws, 'Done', 3);
+    select ws, trim(n), i from unnest(column_names) with ordinality as t(n, i);
   return ws;
 end $$;
 
@@ -345,15 +381,47 @@ create trigger members_after_insert
   after insert on public.workspace_members
   for each row execute function public.after_member_join();
 
--- Internal helpers must not be callable directly from the browser.
-revoke execute on function public.notify(uuid, uuid, uuid, text, text) from public, anon, authenticated;
-revoke execute on function public.handle_new_user() from public, anon, authenticated;
-revoke execute on function public.create_workspace(text) from anon;
-revoke execute on function public.join_workspace(text) from anon;
+-- Internal helpers must not be callable directly from the browser. Functions are
+-- executable by PUBLIC by default, so revoke from everyone, then grant back only
+-- what signed-in users need (the two RPCs, plus the helpers RLS policies call).
+revoke execute on function
+  public.actor_name(),
+  public.notify(uuid, uuid, uuid, text, text),
+  public.handle_new_user(),
+  public.before_task_write(),
+  public.after_task_write(),
+  public.after_comment_insert(),
+  public.after_member_join(),
+  public.create_workspace(text, text[]),
+  public.join_workspace(text),
+  public.is_member(uuid),
+  public.is_manager(uuid),
+  public.shares_workspace(uuid),
+  public.has_permission(uuid, text)
+from public, anon, authenticated;
+
+grant execute on function
+  public.create_workspace(text, text[]),
+  public.join_workspace(text),
+  public.is_member(uuid),
+  public.is_manager(uuid),
+  public.shares_workspace(uuid),
+  public.has_permission(uuid, text)
+to authenticated;
+
+-- ─── Company logos: public to read, uploadable by that workspace's managers ─
+
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('logos', 'logos', true, 1048576, array['image/png', 'image/jpeg', 'image/webp'])
+on conflict (id) do nothing;
+
+create policy "managers upload workspace logos" on storage.objects for insert to authenticated
+  with check (bucket_id = 'logos' and public.is_manager(((storage.foldername(name))[1])::uuid));
 
 -- ─── Realtime: stream every change to connected browsers ──────────────────
 
 alter publication supabase_realtime add table
+  public.workspaces,
   public.tasks,
   public.board_columns,
   public.checklist_items,

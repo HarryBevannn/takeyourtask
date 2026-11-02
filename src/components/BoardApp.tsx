@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { useRouter } from "next/navigation";
-import { Copy, LogOut, Search, Users, X } from "lucide-react";
+import { Copy, LogOut, Search, Settings, Users, X } from "lucide-react";
 import Avatar from "./Avatar";
 import Board from "./Board";
 import Logo from "./Logo";
@@ -10,6 +10,7 @@ import NotificationBell from "./NotificationBell";
 import SetupNotice from "./SetupNotice";
 import TaskModal from "./TaskModal";
 import Toasts from "./Toasts";
+import WorkspaceSettings from "./WorkspaceSettings";
 import type { CardExtras } from "./TaskCard";
 import { supabase, supabaseConfigured } from "@/lib/supabase";
 import type {
@@ -21,8 +22,19 @@ import type {
   Membership,
   Task,
   Toast,
+  Workspace,
+  WorkspaceSettings as SettingsPatch,
 } from "@/lib/types";
-import { WORKSPACE_KEY, byPosition, displayName, keyPrefix, positionBetween, upsert } from "@/lib/utils";
+import {
+  WORKSPACE_KEY,
+  brandStyle,
+  byPosition,
+  displayName,
+  capitalize,
+  fieldConfig,
+  positionBetween,
+  upsert,
+} from "@/lib/utils";
 
 type DbError = { message: string } | null;
 
@@ -53,6 +65,7 @@ export default function BoardApp() {
   const [search, setSearch] = useState("");
   const [assigneeFilter, setAssigneeFilter] = useState<string | null>(null);
   const [inviteOpen, setInviteOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const openTaskRef = useRef<string | null>(null);
   useEffect(() => {
@@ -82,6 +95,12 @@ export default function BoardApp() {
     [pushToast],
   );
 
+  const applyWorkspace = useCallback((ws: Workspace) => {
+    setMemberships((l) =>
+      l?.map((m) => (m.workspace.id === ws.id ? { ...m, workspace: { ...m.workspace, ...ws } } : m)) ?? l,
+    );
+  }, []);
+
   // ─── Session ──────────────────────────────────────────────────────────
 
   useEffect(() => {
@@ -101,7 +120,7 @@ export default function BoardApp() {
     (async () => {
       const { data, error } = await supabase
         .from("workspace_members")
-        .select("role, workspace:workspaces(id, name, invite_code)")
+        .select("role, workspace:workspaces(*)")
         .eq("user_id", userId);
       if (cancelled) return;
       if (error) return pushToast(error.message, "error");
@@ -195,6 +214,9 @@ export default function BoardApp() {
       .on("postgres_changes", { event: "*", schema: "public", table: "workspace_members", filter }, () =>
         loadMembers(wsId),
       )
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "workspaces", filter: `id=eq.${wsId}` }, (p) =>
+        applyWorkspace(p.new as Workspace),
+      )
       .on("presence", { event: "sync" }, () => setOnline(new Set(Object.keys(channel.presenceState()))))
       .subscribe(async (status) => {
         setLive(status === "SUBSCRIBED");
@@ -208,7 +230,7 @@ export default function BoardApp() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [wsId, userId, loadMembers]);
+  }, [wsId, userId, loadMembers, applyWorkspace]);
 
   // ─── Notifications (across all workspaces) ────────────────────────────
 
@@ -259,7 +281,7 @@ export default function BoardApp() {
     document.title = unread ? `(${unread}) TakeYourTask` : "TakeYourTask";
   }, [unread]);
 
-  // ─── Comments for the open job ────────────────────────────────────────
+  // ─── Comments for the open task ────────────────────────────────────────
 
   useEffect(() => {
     if (!openTaskId) return;
@@ -324,6 +346,7 @@ export default function BoardApp() {
         workspace_id: wsId,
         column_id: columnId,
         title,
+        priority: workspace?.default_priority ?? "medium",
         position: positionBetween(lastPosition(columnId), undefined),
       })
       .select()
@@ -419,6 +442,31 @@ export default function BoardApp() {
     if (permission === "denied") pushToast("Desktop alerts are blocked in your browser's site settings.", "error");
   }
 
+  async function saveSettings(patch: Partial<SettingsPatch>) {
+    if (!wsId) return false;
+    const { data, error } = await supabase.from("workspaces").update(patch).eq("id", wsId).select().single();
+    if (error) {
+      pushToast(error.message, "error");
+      return false;
+    }
+    applyWorkspace(data as Workspace);
+    pushToast("Settings saved");
+    return true;
+  }
+
+  async function uploadLogo(file: File) {
+    if (!wsId) return null;
+    const ext = file.type.split("/")[1] ?? "png";
+    const path = `${wsId}/${crypto.randomUUID()}.${ext}`;
+    const bucket = supabase.storage.from("logos");
+    const { error } = await bucket.upload(path, file, { contentType: file.type });
+    if (error) {
+      pushToast(error.message, "error");
+      return null;
+    }
+    return bucket.getPublicUrl(path).data.publicUrl;
+  }
+
   async function signOut() {
     await supabase.auth.signOut();
     router.replace("/login");
@@ -429,8 +477,13 @@ export default function BoardApp() {
   const membership = memberships?.find((m) => m.workspace.id === wsId);
   const workspace = membership?.workspace;
   const isManager = membership?.role === "manager";
-  const prefix = keyPrefix(workspace?.name);
+  const canCreate = isManager || Boolean(workspace?.staff_can_create_tasks);
+  const canDelete = isManager || Boolean(workspace?.staff_can_delete_tasks);
+  const canManageColumns = isManager || Boolean(workspace?.staff_can_manage_columns);
+  const fields = useMemo(() => fieldConfig(workspace), [workspace]);
+  const prefix = workspace?.key_prefix || "TYT";
   const sortedColumns = useMemo(() => columns.slice().sort(byPosition), [columns]);
+  const doneColumnId = sortedColumns.at(-1)?.id;
   const profileById = useMemo(() => new Map(members.map((m) => [m.user_id, m.profile])), [members]);
   const me = userId ? profileById.get(userId) : undefined;
 
@@ -461,15 +514,16 @@ export default function BoardApp() {
   const extrasFor = useCallback(
     (task: Task): CardExtras => ({
       prefix,
+      fields,
       assignee: task.assignee_id ? profileById.get(task.assignee_id) : undefined,
       assigneeOnline: task.assignee_id ? online.has(task.assignee_id) : false,
       checklist: checklistCounts.get(task.id),
+      done: task.column_id === doneColumnId,
     }),
-    [prefix, profileById, online, checklistCounts],
+    [prefix, fields, profileById, online, checklistCounts, doneColumnId],
   );
 
   const openTaskData = openTaskId ? tasks.find((t) => t.id === openTaskId) : undefined;
-  const doneColumnId = sortedColumns.at(-1)?.id;
   const doneCount = tasks.filter((t) => t.column_id === doneColumnId).length;
 
   // ─── Render ───────────────────────────────────────────────────────────
@@ -488,9 +542,14 @@ export default function BoardApp() {
   }
 
   return (
-    <div className="flex h-dvh flex-col">
+    <div className="flex h-dvh flex-col" style={brandStyle(workspace.accent_color)}>
       <header className="glass relative z-30 mx-3 mt-3 flex items-center gap-2 rounded-2xl px-3 py-2 sm:mx-6 sm:gap-3 sm:px-4">
-        <Logo />
+        {workspace.logo_url ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={workspace.logo_url} alt={workspace.name} className="h-8 w-auto max-w-32 rounded-lg object-contain" />
+        ) : (
+          <Logo />
+        )}
         <span className="mx-1 hidden h-6 w-px bg-white/15 sm:block" />
 
         {memberships && memberships.length > 1 ? (
@@ -570,6 +629,17 @@ export default function BoardApp() {
             )}
           </div>
 
+          {isManager && (
+            <button
+              className="btn btn-ghost px-2.5"
+              onClick={() => setSettingsOpen(true)}
+              aria-label="Workspace settings"
+              title="Workspace settings"
+            >
+              <Settings size={18} />
+            </button>
+          )}
+
           <NotificationBell
             notifications={notifications}
             desktopEnabled={desktopEnabled}
@@ -589,9 +659,9 @@ export default function BoardApp() {
       <div className="flex flex-wrap items-end gap-x-6 gap-y-3 px-4 pt-6 pb-4 sm:px-6">
         <div>
           <p className="text-xs text-faint">{workspace.name} / Board</p>
-          <h1 className="mt-1 text-2xl font-semibold tracking-tight">Jobs board</h1>
+          <h1 className="mt-1 text-2xl font-semibold tracking-tight">{capitalize(fields.itemNamePlural)} board</h1>
           <p className="mt-1 text-sm text-muted">
-            {tasks.length} {tasks.length === 1 ? "job" : "jobs"} · {doneCount} done
+            {tasks.length} {tasks.length === 1 ? fields.itemName : fields.itemNamePlural} · {doneCount} done
           </p>
         </div>
 
@@ -600,7 +670,7 @@ export default function BoardApp() {
             <Search size={15} className="absolute top-1/2 left-3 -translate-y-1/2 text-faint" />
             <input
               className="input glass py-2 pl-9"
-              placeholder="Search jobs"
+              placeholder={`Search ${fields.itemNamePlural}`}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
@@ -614,7 +684,7 @@ export default function BoardApp() {
                   assigneeFilter === m.user_id ? "z-10 ring-2 ring-accent ring-offset-2 ring-offset-[#0d1230]" : ""
                 } ${assigneeFilter && assigneeFilter !== m.user_id ? "opacity-40" : ""}`}
                 onClick={() => setAssigneeFilter(assigneeFilter === m.user_id ? null : m.user_id)}
-                title={`Show jobs for ${displayName(m.profile)}`}
+                title={`Show ${fields.itemNamePlural} for ${displayName(m.profile)}`}
               >
                 <Avatar profile={m.profile} size={32} online={online.has(m.user_id)} />
               </button>
@@ -624,7 +694,7 @@ export default function BoardApp() {
                 className={`btn ml-3 py-1.5 text-xs ${assigneeFilter === userId ? "btn-primary" : ""}`}
                 onClick={() => setAssigneeFilter(assigneeFilter === userId ? null : userId)}
               >
-                Only my jobs
+                Only my {fields.itemNamePlural}
               </button>
             )}
           </div>
@@ -634,7 +704,10 @@ export default function BoardApp() {
       <Board
         columns={sortedColumns}
         tasks={visibleTasks}
-        isManager={isManager}
+        canCreate={canCreate}
+        canManageColumns={canManageColumns}
+        doneColumnId={doneColumnId}
+        itemName={fields.itemName}
         extrasFor={extrasFor}
         onOpen={setOpenTaskId}
         onMove={moveTask}
@@ -648,12 +721,13 @@ export default function BoardApp() {
         <TaskModal
           task={openTaskData}
           prefix={prefix}
+          fields={fields}
           columns={sortedColumns}
           members={members}
           checklist={checklist.filter((i) => i.task_id === openTaskData.id)}
           comments={comments.filter((c) => c.task_id === openTaskData.id)}
           currentUserId={userId}
-          isManager={isManager}
+          canDelete={canDelete}
           onClose={() => setOpenTaskId(null)}
           onUpdate={(patch) => updateTask(openTaskData.id, patch)}
           onDelete={() => deleteTask(openTaskData.id)}
@@ -661,6 +735,16 @@ export default function BoardApp() {
           onToggleChecklist={toggleChecklistItem}
           onDeleteChecklist={deleteChecklistItem}
           onAddComment={(body) => addComment(openTaskData, body)}
+        />
+      )}
+
+      {settingsOpen && isManager && (
+        <WorkspaceSettings
+          key={workspace.id}
+          workspace={workspace}
+          onClose={() => setSettingsOpen(false)}
+          onSave={saveSettings}
+          onUploadLogo={uploadLogo}
         />
       )}
 

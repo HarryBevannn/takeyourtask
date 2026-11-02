@@ -11,6 +11,33 @@ export interface Workspace {
   id: string;
   name: string;
   invite_code: string;
+  logo_url: string | null;
+  accent_color: string | null;
+  location_label: string;
+  show_location: boolean;
+  show_priority: boolean;
+  priority_labels: Partial<Record<Priority, string>>;
+  default_priority: Priority;
+  staff_can_create_tasks: boolean;
+  staff_can_delete_tasks: boolean;
+  staff_can_manage_columns: boolean;
+  key_prefix: string;
+  item_name: string;
+  item_name_plural: string;
+}
+
+/** The workspace columns a manager can change from the settings panel. */
+export type WorkspaceSettings = Omit<Workspace, "id" | "invite_code">;
+
+/** How a company has configured the optional task fields. */
+export interface FieldConfig {
+  /** What this company calls a task, lower case: "job" / "jobs" by default. */
+  itemName: string;
+  itemNamePlural: string;
+  showLocation: boolean;
+  locationLabel: string;
+  showPriority: boolean;
+  priorityLabels: Record<Priority, string>;
 }
 
 export interface Membership {

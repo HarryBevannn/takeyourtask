@@ -7,7 +7,7 @@ export default function Logo({ size = 28 }: { size?: number }) {
           width: size,
           height: size,
           background: "linear-gradient(135deg, var(--accent), var(--accent-2))",
-          boxShadow: "inset 0 1px 0 rgba(255,255,255,0.45), 0 4px 14px rgba(109,141,255,0.4)",
+          boxShadow: "inset 0 1px 0 rgba(255,255,255,0.45), 0 4px 14px color-mix(in srgb, var(--accent) 40%, transparent)",
         }}
       >
         <svg width={size * 0.55} height={size * 0.55} viewBox="0 0 24 24" fill="none" aria-hidden>

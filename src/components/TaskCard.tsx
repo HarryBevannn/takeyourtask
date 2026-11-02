@@ -2,33 +2,43 @@
 
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { CalendarDays, ListChecks, MapPin } from "lucide-react";
+import { CalendarDays, CheckCircle2, ListChecks, MapPin } from "lucide-react";
 import Avatar from "./Avatar";
-import type { Profile, Task } from "@/lib/types";
+import type { FieldConfig, Profile, Task } from "@/lib/types";
 import { PRIORITIES, dueInfo } from "@/lib/utils";
 
 export interface CardExtras {
   prefix: string;
+  fields: FieldConfig;
   assignee?: Profile;
   assigneeOnline?: boolean;
   checklist?: { done: number; total: number };
+  /** In the last column: shown with a tick and toned down. */
+  done?: boolean;
 }
 
 export function TaskCardBody({ task, extras, lifted }: { task: Task; extras: CardExtras; lifted?: boolean }) {
   const due = dueInfo(task.due_date);
   const priority = PRIORITIES[task.priority];
-  const checklist = extras.checklist;
+  const { checklist, fields, done } = extras;
 
   return (
     <div
       className={`glass-card relative overflow-hidden rounded-2xl p-3.5 pl-4 ${
         lifted ? "rotate-2 scale-[1.03] shadow-2xl" : ""
-      }`}
+      } ${done && !lifted ? "opacity-75 hover:opacity-100" : ""}`}
     >
-      <span className="absolute inset-y-0 left-0 w-1" style={{ background: priority.color }} />
-      <p className="text-[0.9rem] leading-snug font-medium">{task.title}</p>
+      {done ? (
+        <span className="absolute inset-y-0 left-0 w-1 bg-success" />
+      ) : (
+        fields.showPriority && <span className="absolute inset-y-0 left-0 w-1" style={{ background: priority.color }} />
+      )}
+      <p className="flex items-start gap-1.5 text-[0.9rem] leading-snug font-medium">
+        {done && <CheckCircle2 size={16} className="mt-px shrink-0 text-success" aria-label="Done" />}
+        <span className={done ? "text-muted" : ""}>{task.title}</span>
+      </p>
 
-      {task.location && (
+      {fields.showLocation && task.location && (
         <p className="mt-1.5 flex items-center gap-1 text-xs text-muted">
           <MapPin size={12} /> {task.location}
         </p>
@@ -38,12 +48,14 @@ export function TaskCardBody({ task, extras, lifted }: { task: Task; extras: Car
         <span className="font-mono text-[0.7rem] tracking-wide text-faint">
           {extras.prefix}-{task.number}
         </span>
-        <span
-          className="rounded-md px-1.5 py-0.5 text-[0.68rem] font-semibold"
-          style={{ background: `${priority.color}22`, color: priority.color }}
-        >
-          {priority.label}
-        </span>
+        {fields.showPriority && (
+          <span
+            className="rounded-md px-1.5 py-0.5 text-[0.68rem] font-semibold"
+            style={{ background: `${priority.color}22`, color: priority.color }}
+          >
+            {fields.priorityLabels[task.priority]}
+          </span>
+        )}
         {checklist && checklist.total > 0 && (
           <span
             className={`flex items-center gap-1 ${checklist.done === checklist.total ? "text-success" : ""}`}
@@ -51,7 +63,7 @@ export function TaskCardBody({ task, extras, lifted }: { task: Task; extras: Car
             <ListChecks size={13} /> {checklist.done}/{checklist.total}
           </span>
         )}
-        {due && (
+        {due && !done && (
           <span
             className={`flex items-center gap-1 ${
               due.tone === "overdue" ? "text-danger" : due.tone === "soon" ? "text-[#ffd166]" : ""
