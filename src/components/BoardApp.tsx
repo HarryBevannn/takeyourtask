@@ -915,6 +915,7 @@ export default function BoardApp() {
           onDeleteComment={deleteComment}
           onAddPhoto={(file) => addPhoto(openTaskData, file)}
           onDeletePhoto={deletePhoto}
+          onSaved={() => pushToast(`${prefix}-${openTaskData.number} saved`)}
         />
       )}
 

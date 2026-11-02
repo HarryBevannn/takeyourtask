@@ -42,6 +42,7 @@ interface TaskModalProps {
   onDeleteComment: (id: string) => void;
   onAddPhoto: (file: File) => Promise<void>;
   onDeletePhoto: (attachment: Attachment) => void;
+  onSaved: () => void;
 }
 
 export default function TaskModal(props: TaskModalProps) {
@@ -70,6 +71,15 @@ export default function TaskModal(props: TaskModalProps) {
     await props.onAddComment(body);
     setSending(false);
     setComment("");
+  }
+
+  // Everything already saves as you go; this commits whatever is still being typed, then closes.
+  async function saveAndClose() {
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+    if (newItem.trim()) props.onAddChecklist(newItem.trim());
+    await sendComment();
+    props.onSaved();
+    onClose();
   }
 
   // Text fields save on blur; keying on updated_at picks up edits made by teammates.
@@ -106,7 +116,7 @@ export default function TaskModal(props: TaskModalProps) {
           </div>
         </header>
 
-        <div className="grid flex-1 gap-6 overflow-y-auto p-6 md:grid-cols-[1fr_260px]">
+        <div className="grid flex-1 gap-6 overflow-x-hidden overflow-y-auto p-6 md:grid-cols-[1fr_260px]">
           <div className="min-w-0 space-y-6">
             <textarea
               key={`title:${textKey}`}
@@ -340,6 +350,15 @@ export default function TaskModal(props: TaskModalProps) {
             </p>
           </aside>
         </div>
+
+        <footer className="flex items-center gap-3 border-t border-white/10 px-6 py-3">
+          <span className="flex items-center gap-1.5 text-xs text-faint">
+            <Check size={13} className="text-success" /> Changes save automatically
+          </span>
+          <button className="btn btn-primary ml-auto px-5" onClick={saveAndClose} disabled={sending}>
+            <Check size={15} /> Save
+          </button>
+        </footer>
       </div>
     </div>
   );
