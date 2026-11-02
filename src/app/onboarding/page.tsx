@@ -1,29 +1,47 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
-import { LayoutGrid, UserPlus } from "lucide-react";
+import { Suspense, useEffect, useState } from "react";
+import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
+import { ArrowLeft, LayoutGrid, UserPlus } from "lucide-react";
 import Logo from "@/components/Logo";
 import SetupNotice from "@/components/SetupNotice";
 import { supabase, supabaseConfigured } from "@/lib/supabase";
-import { COLUMN_TEMPLATES, WORKSPACE_KEY } from "@/lib/utils";
+import { COLUMN_TEMPLATES, PENDING_INVITE_KEY, WORKSPACE_KEY, readStorage, writeStorage } from "@/lib/utils";
 
 export default function OnboardingPage() {
+  if (!supabaseConfigured) return <SetupNotice />;
+  // Reading the invite code from the URL happens in the browser, inside this boundary.
+  return (
+    <Suspense>
+      <Onboarding />
+    </Suspense>
+  );
+}
+
+function Onboarding() {
   const router = useRouter();
+  const params = useSearchParams();
+  const linkCode = params.get("code")?.trim().toUpperCase() ?? "";
   const [name, setName] = useState("");
   const [templateId, setTemplateId] = useState(COLUMN_TEMPLATES[0].id);
-  const [code, setCode] = useState("");
+  const [code, setCode] = useState(() => linkCode || (typeof window === "undefined" ? "" : readStorage(PENDING_INVITE_KEY)) || "");
+  const [hasWorkspaces, setHasWorkspaces] = useState(false);
   const [busy, setBusy] = useState<"create" | "join" | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!supabaseConfigured) return;
-    supabase.auth.getSession().then(({ data }) => {
-      if (!data.session) router.replace("/login");
+    // Keep an invite code from a link safe while the visitor signs in or creates an account.
+    if (linkCode) writeStorage(PENDING_INVITE_KEY, linkCode);
+    supabase.auth.getSession().then(async ({ data }) => {
+      if (!data.session) return router.replace("/login");
+      const { count } = await supabase
+        .from("workspace_members")
+        .select("workspace_id", { count: "exact", head: true })
+        .eq("user_id", data.session.user.id);
+      setHasWorkspaces((count ?? 0) > 0);
     });
-  }, [router]);
-
-  if (!supabaseConfigured) return <SetupNotice />;
+  }, [router, linkCode]);
 
   const template = COLUMN_TEMPLATES.find((t) => t.id === templateId) ?? COLUMN_TEMPLATES[0];
 
@@ -33,19 +51,29 @@ export default function OnboardingPage() {
     const { data, error } = await supabase.rpc(rpc, args);
     setBusy(null);
     if (error) return setError(error.message);
-    try {
-      localStorage.setItem(WORKSPACE_KEY, data as string);
-    } catch {}
+    writeStorage(PENDING_INVITE_KEY, null);
+    writeStorage(WORKSPACE_KEY, data as string);
     router.replace("/");
   }
 
   return (
     <main className="flex flex-1 items-center justify-center p-4">
       <div className="w-full max-w-3xl">
+        {hasWorkspaces && (
+          <Link href="/" className="btn btn-ghost mb-4 text-muted">
+            <ArrowLeft size={16} /> Back to my board
+          </Link>
+        )}
         <div className="mb-8 flex flex-col items-center gap-3 text-center">
           <Logo size={36} />
-          <h1 className="mt-4 text-2xl font-semibold">Get your team set up</h1>
-          <p className="text-muted">Start a new board for your team, or join one with an invite code.</p>
+          <h1 className="mt-4 text-2xl font-semibold">
+            {linkCode ? "You've been invited to a team" : hasWorkspaces ? "Add another workspace" : "Get your team set up"}
+          </h1>
+          <p className="text-muted">
+            {linkCode
+              ? "Your invite code is filled in below. Press Join to get started."
+              : "Start a new board for your team, or join one with an invite code."}
+          </p>
         </div>
 
         {error && (
@@ -54,7 +82,7 @@ export default function OnboardingPage() {
           </p>
         )}
 
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className={`grid gap-4 md:grid-cols-2 ${linkCode ? "md:[&>*:first-child]:order-2" : ""}`}>
           <form
             className="glass-strong pop-in rounded-3xl p-7"
             onSubmit={(e) => {
@@ -96,7 +124,7 @@ export default function OnboardingPage() {
           </form>
 
           <form
-            className="glass-strong pop-in rounded-3xl p-7"
+            className={`glass-strong pop-in rounded-3xl p-7 ${linkCode ? "ring-2 ring-accent/60" : ""}`}
             onSubmit={(e) => {
               e.preventDefault();
               finish("join_workspace", { code });
@@ -104,7 +132,7 @@ export default function OnboardingPage() {
           >
             <UserPlus className="text-accent" size={26} />
             <h2 className="mt-4 text-lg font-semibold">Join your team</h2>
-            <p className="mt-1 text-sm text-muted">Ask your manager for the 8-character invite code.</p>
+            <p className="mt-1 text-sm text-muted">Ask your manager for an invite link or the 8-character code.</p>
             <label className="label mt-5" htmlFor="code">Invite code</label>
             <input
               id="code"
@@ -115,7 +143,11 @@ export default function OnboardingPage() {
               maxLength={8}
               required
             />
-            <button type="submit" className="btn mt-4 w-full" disabled={busy !== null}>
+            <button
+              type="submit"
+              className={`btn mt-4 w-full ${linkCode ? "btn-primary" : ""}`}
+              disabled={busy !== null}
+            >
               {busy === "join" ? "Joining…" : "Join workspace"}
             </button>
           </form>

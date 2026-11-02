@@ -5,6 +5,7 @@ export interface Profile {
   id: string;
   full_name: string;
   email: string | null;
+  email_notifications?: boolean;
 }
 
 export interface Workspace {
@@ -73,6 +74,27 @@ export interface Task {
   created_by: string | null;
   created_at: string;
   updated_at: string;
+  /** Set when the task reaches the last column; done work is archived a week later. */
+  completed_at: string | null;
+}
+
+/** An automatic history entry, e.g. "moved this to Done". */
+export interface TaskEvent {
+  id: string;
+  task_id: string;
+  workspace_id: string;
+  actor_id: string | null;
+  message: string;
+  created_at: string;
+}
+
+export interface Attachment {
+  id: string;
+  task_id: string;
+  workspace_id: string;
+  path: string;
+  uploaded_by: string | null;
+  created_at: string;
 }
 
 export interface ChecklistItem {

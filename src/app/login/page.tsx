@@ -5,10 +5,13 @@ import { useRouter } from "next/navigation";
 import Logo from "@/components/Logo";
 import SetupNotice from "@/components/SetupNotice";
 import { supabase, supabaseConfigured } from "@/lib/supabase";
+import { PENDING_INVITE_KEY, readStorage } from "@/lib/utils";
+
+type Mode = "signin" | "signup" | "forgot";
 
 export default function LoginPage() {
   const router = useRouter();
-  const [mode, setMode] = useState<"signin" | "signup">("signin");
+  const [mode, setMode] = useState<Mode>("signin");
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -24,11 +27,24 @@ export default function LoginPage() {
     setError(null);
     setNotice(null);
 
+    if (mode === "forgot") {
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: `${window.location.origin}/reset-password`,
+      });
+      setBusy(false);
+      if (error) return setError(error.message);
+      setNotice("If that email has an account, a link to set a new password is on its way.");
+      return;
+    }
+
+    // Someone who arrived through an invite link goes back to finish joining.
+    const next = readStorage(PENDING_INVITE_KEY) ? "/onboarding" : null;
+
     if (mode === "signin") {
       const { error } = await supabase.auth.signInWithPassword({ email, password });
       setBusy(false);
       if (error) return setError(error.message);
-      router.replace("/");
+      router.replace(next ?? "/");
       return;
     }
 
@@ -40,7 +56,7 @@ export default function LoginPage() {
     setBusy(false);
     if (error) return setError(error.message);
     if (data.session) {
-      router.replace("/onboarding");
+      router.replace(next ?? "/onboarding");
     } else {
       setNotice("Check your inbox to confirm your email, then sign in.");
       setMode("signin");
@@ -56,12 +72,14 @@ export default function LoginPage() {
 
         <div className="glass-strong pop-in rounded-3xl p-7 sm:p-8">
           <h1 className="text-xl font-semibold">
-            {mode === "signin" ? "Welcome back" : "Create your account"}
+            {mode === "signin" ? "Welcome back" : mode === "signup" ? "Create your account" : "Reset your password"}
           </h1>
           <p className="mt-1 text-sm text-muted">
             {mode === "signin"
               ? "Sign in to see your team's board."
-              : "Set up your team's board in under a minute."}
+              : mode === "signup"
+                ? "Set up your team's board in under a minute."
+                : "We'll email you a link to choose a new one."}
           </p>
 
           <form onSubmit={submit} className="mt-6 space-y-4">
@@ -90,25 +108,48 @@ export default function LoginPage() {
                 required
               />
             </div>
-            <div>
-              <label className="label" htmlFor="password">Password</label>
-              <input
-                id="password"
-                type="password"
-                className="input"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                autoComplete={mode === "signin" ? "current-password" : "new-password"}
-                minLength={8}
-                required
-              />
-            </div>
+            {mode !== "forgot" && (
+              <div>
+                <div className="flex items-baseline justify-between">
+                  <label className="label" htmlFor="password">Password</label>
+                  {mode === "signin" && (
+                    <button
+                      type="button"
+                      className="text-xs text-accent hover:underline"
+                      onClick={() => {
+                        setMode("forgot");
+                        setError(null);
+                        setNotice(null);
+                      }}
+                    >
+                      Forgot password?
+                    </button>
+                  )}
+                </div>
+                <input
+                  id="password"
+                  type="password"
+                  className="input"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  autoComplete={mode === "signin" ? "current-password" : "new-password"}
+                  minLength={8}
+                  required
+                />
+              </div>
+            )}
 
             {error && <p className="rounded-xl bg-danger/15 px-3 py-2 text-sm text-danger">{error}</p>}
             {notice && <p className="rounded-xl bg-success/15 px-3 py-2 text-sm text-success">{notice}</p>}
 
             <button type="submit" className="btn btn-primary w-full py-2.5" disabled={busy}>
-              {busy ? "Please wait…" : mode === "signin" ? "Sign in" : "Create account"}
+              {busy
+                ? "Please wait…"
+                : mode === "signin"
+                  ? "Sign in"
+                  : mode === "signup"
+                    ? "Create account"
+                    : "Send reset link"}
             </button>
           </form>
 
@@ -120,6 +161,7 @@ export default function LoginPage() {
               onClick={() => {
                 setMode(mode === "signin" ? "signup" : "signin");
                 setError(null);
+                setNotice(null);
               }}
             >
               {mode === "signin" ? "Create an account" : "Sign in"}

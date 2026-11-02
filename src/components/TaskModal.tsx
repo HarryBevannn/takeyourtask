@@ -3,8 +3,21 @@
 import { useEffect, useState } from "react";
 import { Check, MapPin, Send, Trash2, X } from "lucide-react";
 import Avatar from "./Avatar";
-import type { ChecklistItem, Column, Comment, FieldConfig, Member, Priority, Task } from "@/lib/types";
+import TaskPhotos from "./TaskPhotos";
+import type {
+  Attachment,
+  ChecklistItem,
+  Column,
+  Comment,
+  FieldConfig,
+  Member,
+  Priority,
+  Task,
+  TaskEvent,
+} from "@/lib/types";
 import { PRIORITIES, PRIORITY_ORDER, byPosition, displayName, timeAgo } from "@/lib/utils";
+
+type ActivityEntry = { kind: "comment"; item: Comment } | { kind: "event"; item: TaskEvent };
 
 interface TaskModalProps {
   task: Task;
@@ -14,8 +27,11 @@ interface TaskModalProps {
   members: Member[];
   checklist: ChecklistItem[];
   comments: Comment[];
+  events: TaskEvent[];
+  attachments: Attachment[];
   currentUserId: string;
   canDelete: boolean;
+  isManager: boolean;
   onClose: () => void;
   onUpdate: (patch: Partial<Task>) => void;
   onDelete: () => void;
@@ -23,6 +39,9 @@ interface TaskModalProps {
   onToggleChecklist: (item: ChecklistItem) => void;
   onDeleteChecklist: (id: string) => void;
   onAddComment: (body: string) => Promise<void>;
+  onDeleteComment: (id: string) => void;
+  onAddPhoto: (file: File) => Promise<void>;
+  onDeletePhoto: (attachment: Attachment) => void;
 }
 
 export default function TaskModal(props: TaskModalProps) {
@@ -33,6 +52,10 @@ export default function TaskModal(props: TaskModalProps) {
   const profileById = new Map(members.map((m) => [m.user_id, m.profile]));
   const items = checklist.slice().sort(byPosition);
   const done = items.filter((i) => i.done).length;
+  const activity: ActivityEntry[] = [
+    ...comments.map((item) => ({ kind: "comment" as const, item })),
+    ...props.events.map((item) => ({ kind: "event" as const, item })),
+  ].sort((a, b) => b.item.created_at.localeCompare(a.item.created_at));
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -167,6 +190,14 @@ export default function TaskModal(props: TaskModalProps) {
               </form>
             </div>
 
+            <TaskPhotos
+              attachments={props.attachments}
+              currentUserId={props.currentUserId}
+              isManager={props.isManager}
+              onAdd={props.onAddPhoto}
+              onDelete={props.onDeletePhoto}
+            />
+
             <div>
               <span className="label">Activity</span>
               <div className="flex gap-3">
@@ -186,24 +217,43 @@ export default function TaskModal(props: TaskModalProps) {
                 </div>
               </div>
               <ul className="mt-5 space-y-4">
-                {comments
-                  .slice()
-                  .sort((a, b) => b.created_at.localeCompare(a.created_at))
-                  .map((c) => {
-                    const author = c.author_id ? profileById.get(c.author_id) : undefined;
+                {activity.map((entry) => {
+                  if (entry.kind === "event") {
+                    const e = entry.item;
+                    const actor = e.actor_id ? profileById.get(e.actor_id) : undefined;
                     return (
-                      <li key={c.id} className="pop-in flex gap-3">
-                        <Avatar profile={author} size={30} />
-                        <div className="min-w-0 flex-1">
-                          <p className="text-sm">
-                            <span className="font-medium">{displayName(author)}</span>{" "}
-                            <span className="text-xs text-faint">{timeAgo(c.created_at)}</span>
-                          </p>
-                          <p className="mt-1 text-sm whitespace-pre-wrap text-muted">{c.body}</p>
-                        </div>
+                      <li key={`e:${e.id}`} className="flex items-center gap-3 pl-1.5 text-xs text-faint">
+                        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-white/25" />
+                        <span>
+                          <span className="text-muted">{actor ? displayName(actor) : "Someone"}</span> {e.message} ·{" "}
+                          {timeAgo(e.created_at)}
+                        </span>
                       </li>
                     );
-                  })}
+                  }
+                  const c = entry.item;
+                  const author = c.author_id ? profileById.get(c.author_id) : undefined;
+                  return (
+                    <li key={`c:${c.id}`} className="group pop-in flex gap-3">
+                      <Avatar profile={author} size={30} />
+                      <div className="min-w-0 flex-1">
+                        <p className="flex items-center gap-2 text-sm">
+                          <span className="font-medium">{displayName(author)}</span>
+                          <span className="text-xs text-faint">{timeAgo(c.created_at)}</span>
+                          {c.author_id === props.currentUserId && (
+                            <button
+                              className="ml-auto text-xs text-faint opacity-0 transition group-hover:opacity-100 hover:text-danger focus:opacity-100"
+                              onClick={() => confirm("Delete this comment?") && props.onDeleteComment(c.id)}
+                            >
+                              Delete
+                            </button>
+                          )}
+                        </p>
+                        <p className="mt-1 text-sm whitespace-pre-wrap text-muted">{c.body}</p>
+                      </div>
+                    </li>
+                  );
+                })}
               </ul>
             </div>
           </div>

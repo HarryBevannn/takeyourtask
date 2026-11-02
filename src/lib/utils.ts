@@ -3,6 +3,32 @@ import type { FieldConfig, Priority, Profile, Workspace } from "./types";
 
 /** localStorage key for the workspace the user last had open. */
 export const WORKSPACE_KEY = "tyt.workspace";
+/** localStorage key for an invite code waiting for the visitor to sign in. */
+export const PENDING_INVITE_KEY = "tyt.pendingInvite";
+/** localStorage key for the board / my-work view choice. */
+export const VIEW_KEY = "tyt.view";
+
+/** Finished work stays on the board this long before it's archived. */
+export const ARCHIVE_AFTER_DAYS = 7;
+
+export function inviteLink(code: string) {
+  return `${window.location.origin}/onboarding?code=${encodeURIComponent(code)}`;
+}
+
+export function readStorage(key: string) {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+export function writeStorage(key: string, value: string | null) {
+  try {
+    if (value === null) localStorage.removeItem(key);
+    else localStorage.setItem(key, value);
+  } catch {}
+}
 
 export const PRIORITIES: Record<Priority, { label: string; color: string }> = {
   urgent: { label: "Urgent", color: "#ff5c7a" },

@@ -2,30 +2,39 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import { useRouter } from "next/navigation";
-import { Copy, LogOut, Search, Settings, Users, X } from "lucide-react";
+import { Archive, KanbanSquare, ListTodo, LogOut, Search, Settings, Users } from "lucide-react";
 import Avatar from "./Avatar";
 import Board from "./Board";
 import Logo from "./Logo";
+import MyWork from "./MyWork";
 import NotificationBell from "./NotificationBell";
+import ProfileDialog from "./ProfileDialog";
 import SetupNotice from "./SetupNotice";
 import TaskModal from "./TaskModal";
+import TeamPanel from "./TeamPanel";
 import Toasts from "./Toasts";
 import WorkspaceSettings from "./WorkspaceSettings";
 import type { CardExtras } from "./TaskCard";
 import { supabase, supabaseConfigured } from "@/lib/supabase";
 import type {
   AppNotification,
+  Attachment,
   ChecklistItem,
   Column,
   Comment,
   Member,
   Membership,
+  Profile,
+  Role,
   Task,
+  TaskEvent,
   Toast,
   Workspace,
   WorkspaceSettings as SettingsPatch,
 } from "@/lib/types";
 import {
+  ARCHIVE_AFTER_DAYS,
+  VIEW_KEY,
   WORKSPACE_KEY,
   brandStyle,
   byPosition,
@@ -33,8 +42,13 @@ import {
   capitalize,
   fieldConfig,
   positionBetween,
+  readStorage,
   upsert,
+  writeStorage,
 } from "@/lib/utils";
+
+type View = "board" | "mine";
+const ADD_WORKSPACE = "__add";
 
 type DbError = { message: string } | null;
 
@@ -52,6 +66,11 @@ export default function BoardApp() {
   const [checklist, setChecklist] = useState<ChecklistItem[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
   const [comments, setComments] = useState<Comment[]>([]);
+  const [events, setEvents] = useState<TaskEvent[]>([]);
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [archivedCount, setArchivedCount] = useState(0);
+  const [showArchived, setShowArchived] = useState(false);
+  const [membershipsKey, setMembershipsKey] = useState(0);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
 
   const [live, setLive] = useState(false);
@@ -66,6 +85,14 @@ export default function BoardApp() {
   const [assigneeFilter, setAssigneeFilter] = useState<string | null>(null);
   const [inviteOpen, setInviteOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
+  // Phones start on the personal list; everyone can switch, and the choice is remembered.
+  const [view, setView] = useState<View>(() => {
+    if (typeof window === "undefined") return "board";
+    const saved = readStorage(VIEW_KEY);
+    if (saved === "board" || saved === "mine") return saved;
+    return window.innerWidth < 640 ? "mine" : "board";
+  });
 
   const openTaskRef = useRef<string | null>(null);
   useEffect(() => {
@@ -127,10 +154,7 @@ export default function BoardApp() {
       const list = (data ?? []) as unknown as Membership[];
       if (list.length === 0) return router.replace("/onboarding");
 
-      let stored: string | null = null;
-      try {
-        stored = localStorage.getItem(WORKSPACE_KEY);
-      } catch {}
+      const stored = readStorage(WORKSPACE_KEY);
       setMemberships(list);
       setWsId(
         (current) =>
@@ -142,14 +166,14 @@ export default function BoardApp() {
     return () => {
       cancelled = true;
     };
-  }, [userId, router, pushToast]);
+  }, [userId, router, pushToast, membershipsKey]);
 
   // ─── Board data ───────────────────────────────────────────────────────
 
   const loadMembers = useCallback(async (workspaceId: string) => {
     const { data } = await supabase
       .from("workspace_members")
-      .select("user_id, role, profile:profiles(id, full_name, email)")
+      .select("user_id, role, profile:profiles(id, full_name, email, email_notifications)")
       .eq("workspace_id", workspaceId);
     setMembers((data ?? []) as unknown as Member[]);
   }, []);
@@ -158,10 +182,19 @@ export default function BoardApp() {
     if (!wsId) return;
     let cancelled = false;
     (async () => {
-      const [cols, tks, items] = await Promise.all([
+      // Work finished more than a week ago is archived: left out unless asked for.
+      const cutoff = new Date(Date.now() - ARCHIVE_AFTER_DAYS * 86_400_000).toISOString();
+      let taskQuery = supabase.from("tasks").select("*").eq("workspace_id", wsId);
+      if (!showArchived) taskQuery = taskQuery.or(`completed_at.is.null,completed_at.gt.${cutoff}`);
+      const [cols, tks, items, archived] = await Promise.all([
         supabase.from("board_columns").select("*").eq("workspace_id", wsId),
-        supabase.from("tasks").select("*").eq("workspace_id", wsId),
+        taskQuery,
         supabase.from("checklist_items").select("*").eq("workspace_id", wsId),
+        supabase
+          .from("tasks")
+          .select("id", { count: "exact", head: true })
+          .eq("workspace_id", wsId)
+          .lte("completed_at", cutoff),
         loadMembers(wsId),
       ]);
       if (cancelled) return;
@@ -170,12 +203,13 @@ export default function BoardApp() {
       setColumns((cols.data ?? []) as Column[]);
       setTasks((tks.data ?? []) as Task[]);
       setChecklist((items.data ?? []) as ChecklistItem[]);
+      setArchivedCount(archived.count ?? 0);
       setBoardReady(true);
     })();
     return () => {
       cancelled = true;
     };
-  }, [wsId, reloadKey, loadMembers, pushToast]);
+  }, [wsId, reloadKey, showArchived, loadMembers, pushToast]);
 
   // ─── Live updates + presence for the open workspace ───────────────────
 
@@ -211,9 +245,26 @@ export default function BoardApp() {
       .on("postgres_changes", { event: "DELETE", schema: "public", table: "comments" }, (p) =>
         setComments((l) => l.filter((c) => c.id !== (p.old as { id: string }).id)),
       )
-      .on("postgres_changes", { event: "*", schema: "public", table: "workspace_members", filter }, () =>
-        loadMembers(wsId),
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "task_events", filter }, (p) => {
+        const e = p.new as TaskEvent;
+        if (e.task_id === openTaskRef.current) setEvents((l) => upsert(l, e));
+      })
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "task_attachments", filter }, (p) => {
+        const a = p.new as Attachment;
+        if (a.task_id === openTaskRef.current) setAttachments((l) => upsert(l, a));
+      })
+      .on("postgres_changes", { event: "DELETE", schema: "public", table: "task_attachments" }, (p) =>
+        setAttachments((l) => l.filter((a) => a.id !== (p.old as { id: string }).id)),
       )
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "profiles" }, (p) => {
+        const updated = p.new as Profile;
+        setMembers((l) => l.map((m) => (m.user_id === updated.id ? { ...m, profile: { ...m.profile, ...updated } } : m)));
+      })
+      // Roles, joins and removals: refresh the member list and this user's own access.
+      .on("postgres_changes", { event: "*", schema: "public", table: "workspace_members", filter }, () => {
+        loadMembers(wsId);
+        setMembershipsKey((k) => k + 1);
+      })
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "workspaces", filter: `id=eq.${wsId}` }, (p) =>
         applyWorkspace(p.new as Workspace),
       )
@@ -281,18 +332,21 @@ export default function BoardApp() {
     document.title = unread ? `(${unread}) TakeYourTask` : "TakeYourTask";
   }, [unread]);
 
-  // ─── Comments for the open task ────────────────────────────────────────
+  // ─── Comments, history and photos for the open task ────────────────────────────────────────
 
   useEffect(() => {
     if (!openTaskId) return;
     let cancelled = false;
-    supabase
-      .from("comments")
-      .select("*")
-      .eq("task_id", openTaskId)
-      .then(({ data }) => {
-        if (!cancelled) setComments((data ?? []) as Comment[]);
-      });
+    Promise.all([
+      supabase.from("comments").select("*").eq("task_id", openTaskId),
+      supabase.from("task_events").select("*").eq("task_id", openTaskId),
+      supabase.from("task_attachments").select("*").eq("task_id", openTaskId),
+    ]).then(([c, e, a]) => {
+      if (cancelled) return;
+      setComments((c.data ?? []) as Comment[]);
+      setEvents((e.data ?? []) as TaskEvent[]);
+      setAttachments((a.data ?? []) as Attachment[]);
+    });
     return () => {
       cancelled = true;
     };
@@ -301,11 +355,11 @@ export default function BoardApp() {
   // ─── Actions ──────────────────────────────────────────────────────────
 
   function switchWorkspace(id: string) {
+    if (id === ADD_WORKSPACE) return router.push("/onboarding");
     if (id === wsId) return;
-    try {
-      localStorage.setItem(WORKSPACE_KEY, id);
-    } catch {}
+    writeStorage(WORKSPACE_KEY, id);
     setBoardReady(false);
+    setShowArchived(false);
     setColumns([]);
     setTasks([]);
     setChecklist([]);
@@ -423,6 +477,101 @@ export default function BoardApp() {
     else if (data) setComments((l) => upsert(l, data as Comment));
   }
 
+  async function deleteComment(id: string) {
+    setComments((l) => l.filter((c) => c.id !== id));
+    const { error } = await supabase.from("comments").delete().eq("id", id);
+    if (error) pushToast(error.message, "error");
+  }
+
+  async function addPhoto(task: Task, file: File) {
+    const ext = file.type.split("/")[1] ?? "jpg";
+    const path = `${task.workspace_id}/${task.id}/${crypto.randomUUID()}.${ext}`;
+    const bucket = supabase.storage.from("task-photos");
+    const upload = await bucket.upload(path, file, { contentType: file.type });
+    if (upload.error) return pushToast(upload.error.message, "error");
+    const { data, error } = await supabase
+      .from("task_attachments")
+      .insert({ task_id: task.id, workspace_id: task.workspace_id, path, uploaded_by: userId })
+      .select()
+      .single();
+    if (error) {
+      await bucket.remove([path]);
+      return pushToast(error.message, "error");
+    }
+    setAttachments((l) => upsert(l, data as Attachment));
+  }
+
+  async function deletePhoto(attachment: Attachment) {
+    setAttachments((l) => l.filter((a) => a.id !== attachment.id));
+    const { error } = await supabase.from("task_attachments").delete().eq("id", attachment.id);
+    if (error) return pushToast(error.message, "error");
+    await supabase.storage.from("task-photos").remove([attachment.path]);
+  }
+
+  async function saveProfile(patch: Pick<Profile, "full_name" | "email_notifications">) {
+    if (!userId) return false;
+    const { error } = await supabase.from("profiles").update(patch).eq("id", userId);
+    if (error) {
+      pushToast(error.message, "error");
+      return false;
+    }
+    setMembers((l) => l.map((m) => (m.user_id === userId ? { ...m, profile: { ...m.profile, ...patch } } : m)));
+    pushToast("Profile saved");
+    return true;
+  }
+
+  async function newInviteCode() {
+    if (!workspace) return;
+    const { data, error } = await supabase.rpc("regenerate_invite_code", { ws: workspace.id });
+    if (error) return pushToast(error.message, "error");
+    applyWorkspace({ ...workspace, invite_code: data as string });
+    pushToast("New invite code ready. Old links no longer work.");
+  }
+
+  async function changeRole(memberId: string, role: Role) {
+    if (!wsId) return;
+    setMembers((l) => l.map((m) => (m.user_id === memberId ? { ...m, role } : m)));
+    const { error } = await supabase
+      .from("workspace_members")
+      .update({ role })
+      .eq("workspace_id", wsId)
+      .eq("user_id", memberId);
+    if (error) {
+      pushToast(error.message, "error");
+      loadMembers(wsId);
+    }
+    setMembershipsKey((k) => k + 1);
+  }
+
+  async function removeMember(member: Member) {
+    const name = displayName(member.profile);
+    if (!wsId || !confirm(`Remove ${name} from this workspace? Their tasks become unassigned.`)) return;
+    const { error } = await supabase
+      .from("workspace_members")
+      .delete()
+      .eq("workspace_id", wsId)
+      .eq("user_id", member.user_id);
+    if (error) return pushToast(error.message, "error");
+    setMembers((l) => l.filter((m) => m.user_id !== member.user_id));
+  }
+
+  async function leaveWorkspace() {
+    if (!wsId || !userId || !workspace) return;
+    if (!confirm(`Leave ${workspace.name}? You will need a new invite to come back.`)) return;
+    const { error } = await supabase.from("workspace_members").delete().eq("workspace_id", wsId).eq("user_id", userId);
+    if (error) return pushToast(error.message, "error");
+    writeStorage(WORKSPACE_KEY, null);
+    setInviteOpen(false);
+    setBoardReady(false);
+    setWsId(null);
+    setMembershipsKey((k) => k + 1);
+  }
+
+  function changeView(next: View) {
+    setView(next);
+    writeStorage(VIEW_KEY, next);
+  }
+
   async function openNotification(n: AppNotification) {
     if (n.task_id) openTask(n.task_id, n.workspace_id);
     if (n.read) return;
@@ -523,6 +672,11 @@ export default function BoardApp() {
     [prefix, fields, profileById, online, checklistCounts, doneColumnId],
   );
 
+  const myWork = useMemo(
+    () => visibleTasks.filter((t) => t.assignee_id === userId && t.column_id !== doneColumnId),
+    [visibleTasks, userId, doneColumnId],
+  );
+
   const openTaskData = openTaskId ? tasks.find((t) => t.id === openTaskId) : undefined;
   const doneCount = tasks.filter((t) => t.column_id === doneColumnId).length;
 
@@ -552,22 +706,19 @@ export default function BoardApp() {
         )}
         <span className="mx-1 hidden h-6 w-px bg-white/15 sm:block" />
 
-        {memberships && memberships.length > 1 ? (
-          <select
-            className="input w-auto max-w-[45vw] py-1.5 text-sm font-medium"
-            value={wsId ?? ""}
-            onChange={(e) => switchWorkspace(e.target.value)}
-            aria-label="Workspace"
-          >
-            {memberships.map((m) => (
-              <option key={m.workspace.id} value={m.workspace.id}>
-                {m.workspace.name}
-              </option>
-            ))}
-          </select>
-        ) : (
-          <span className="hidden truncate text-sm font-medium sm:block">{workspace.name}</span>
-        )}
+        <select
+          className="input w-auto max-w-[40vw] py-1.5 text-sm font-medium"
+          value={wsId ?? ""}
+          onChange={(e) => switchWorkspace(e.target.value)}
+          aria-label="Workspace"
+        >
+          {memberships?.map((m) => (
+            <option key={m.workspace.id} value={m.workspace.id}>
+              {m.workspace.name}
+            </option>
+          ))}
+          <option value={ADD_WORKSPACE}>+ Create or join another…</option>
+        </select>
 
         <span
           className={`hidden items-center gap-1.5 rounded-full px-2.5 py-1 text-xs md:flex ${
@@ -589,43 +740,19 @@ export default function BoardApp() {
               <span className="hidden sm:inline">Team</span>
             </button>
             {inviteOpen && (
-              <div className="glass-strong pop-in absolute right-0 z-50 mt-2 w-[min(92vw,340px)] rounded-2xl p-4">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-semibold">Team</h3>
-                  <button className="text-faint hover:text-foreground" onClick={() => setInviteOpen(false)} aria-label="Close">
-                    <X size={16} />
-                  </button>
-                </div>
-                {isManager && (
-                  <div className="mt-3 rounded-xl bg-black/20 p-3">
-                    <p className="text-xs text-muted">Invite code. Teammates sign up, choose “Join your team” and enter:</p>
-                    <div className="mt-2 flex items-center gap-2">
-                      <code className="flex-1 font-mono text-lg tracking-[0.25em]">{workspace.invite_code}</code>
-                      <button
-                        className="btn px-2.5 py-1.5"
-                        onClick={() => {
-                          navigator.clipboard.writeText(workspace.invite_code);
-                          pushToast("Invite code copied");
-                        }}
-                      >
-                        <Copy size={14} /> Copy
-                      </button>
-                    </div>
-                  </div>
-                )}
-                <ul className="mt-3 max-h-64 space-y-1 overflow-y-auto">
-                  {members.map((m) => (
-                    <li key={m.user_id} className="flex items-center gap-3 rounded-xl px-2 py-1.5">
-                      <Avatar profile={m.profile} size={28} online={online.has(m.user_id)} />
-                      <span className="flex-1 truncate text-sm">
-                        {displayName(m.profile)}
-                        {m.user_id === userId && <span className="text-faint"> (you)</span>}
-                      </span>
-                      <span className="text-xs text-faint capitalize">{m.role}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
+              <TeamPanel
+                workspace={workspace}
+                members={members}
+                currentUserId={userId}
+                isManager={isManager}
+                online={online}
+                onCopied={(what) => pushToast(what)}
+                onNewCode={newInviteCode}
+                onChangeRole={changeRole}
+                onRemove={removeMember}
+                onLeave={leaveWorkspace}
+                onClose={() => setInviteOpen(false)}
+              />
             )}
           </div>
 
@@ -649,7 +776,14 @@ export default function BoardApp() {
           />
 
           <span className="mx-1 h-6 w-px bg-white/15" />
-          <Avatar profile={me} size={30} />
+          <button
+            className="rounded-full transition hover:-translate-y-0.5"
+            onClick={() => setProfileOpen(true)}
+            aria-label="Your profile"
+            title="Your profile"
+          >
+            <Avatar profile={me} size={30} />
+          </button>
           <button className="btn btn-ghost px-2.5" onClick={signOut} aria-label="Sign out" title="Sign out">
             <LogOut size={17} />
           </button>
@@ -660,9 +794,39 @@ export default function BoardApp() {
         <div>
           <p className="text-xs text-faint">{workspace.name} / Board</p>
           <h1 className="mt-1 text-2xl font-semibold tracking-tight">{capitalize(fields.itemNamePlural)} board</h1>
-          <p className="mt-1 text-sm text-muted">
+          <p className="mt-1 flex flex-wrap items-center gap-x-2 text-sm text-muted">
             {tasks.length} {tasks.length === 1 ? fields.itemName : fields.itemNamePlural} · {doneCount} done
+            {(archivedCount > 0 || showArchived) && (
+              <button
+                className="flex items-center gap-1 text-xs text-faint hover:text-foreground"
+                onClick={() => setShowArchived(!showArchived)}
+                title={`Finished more than ${ARCHIVE_AFTER_DAYS} days ago`}
+              >
+                <Archive size={12} />
+                {showArchived ? "Hide archived" : `Show ${archivedCount} archived`}
+              </button>
+            )}
           </p>
+        </div>
+
+        <div className="glass flex rounded-xl p-0.5" role="tablist" aria-label="View">
+          <button
+            role="tab"
+            aria-selected={view === "board"}
+            className={`btn border-transparent px-3 py-1.5 text-xs ${view === "board" ? "bg-white/15" : "bg-transparent text-muted"}`}
+            onClick={() => changeView("board")}
+          >
+            <KanbanSquare size={14} /> Board
+          </button>
+          <button
+            role="tab"
+            aria-selected={view === "mine"}
+            className={`btn border-transparent px-3 py-1.5 text-xs ${view === "mine" ? "bg-white/15" : "bg-transparent text-muted"}`}
+            onClick={() => changeView("mine")}
+          >
+            <ListTodo size={14} /> My work
+            {myWork.length > 0 && <span className="rounded-full bg-accent/25 px-1.5 text-[0.65rem]">{myWork.length}</span>}
+          </button>
         </div>
 
         <div className="flex flex-1 flex-wrap items-center gap-3 sm:justify-end">
@@ -676,7 +840,7 @@ export default function BoardApp() {
             />
           </div>
 
-          <div className="flex items-center">
+          <div className={`flex items-center ${view === "mine" ? "hidden" : ""}`}>
             {members.slice(0, 8).map((m) => (
               <button
                 key={m.user_id}
@@ -701,6 +865,15 @@ export default function BoardApp() {
         </div>
       </div>
 
+      {view === "mine" ? (
+        <MyWork
+          tasks={myWork}
+          columns={sortedColumns}
+          itemNamePlural={fields.itemNamePlural}
+          extrasFor={extrasFor}
+          onOpen={setOpenTaskId}
+        />
+      ) : (
       <Board
         columns={sortedColumns}
         tasks={visibleTasks}
@@ -716,6 +889,7 @@ export default function BoardApp() {
         onRenameColumn={renameColumn}
         onDeleteColumn={deleteColumn}
       />
+      )}
 
       {openTaskData && userId && (
         <TaskModal
@@ -726,8 +900,11 @@ export default function BoardApp() {
           members={members}
           checklist={checklist.filter((i) => i.task_id === openTaskData.id)}
           comments={comments.filter((c) => c.task_id === openTaskData.id)}
+          events={events.filter((e) => e.task_id === openTaskData.id)}
+          attachments={attachments.filter((a) => a.task_id === openTaskData.id)}
           currentUserId={userId}
           canDelete={canDelete}
+          isManager={isManager}
           onClose={() => setOpenTaskId(null)}
           onUpdate={(patch) => updateTask(openTaskData.id, patch)}
           onDelete={() => deleteTask(openTaskData.id)}
@@ -735,8 +912,13 @@ export default function BoardApp() {
           onToggleChecklist={toggleChecklistItem}
           onDeleteChecklist={deleteChecklistItem}
           onAddComment={(body) => addComment(openTaskData, body)}
+          onDeleteComment={deleteComment}
+          onAddPhoto={(file) => addPhoto(openTaskData, file)}
+          onDeletePhoto={deletePhoto}
         />
       )}
+
+      {profileOpen && me && <ProfileDialog profile={me} onClose={() => setProfileOpen(false)} onSave={saveProfile} />}
 
       {settingsOpen && isManager && (
         <WorkspaceSettings
