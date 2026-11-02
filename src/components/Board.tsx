@@ -138,7 +138,7 @@ export default function Board(props: BoardProps) {
       onDragEnd={handleDragEnd}
       onDragCancel={() => setDrag(null)}
     >
-      <div className="flex flex-1 gap-4 overflow-x-auto px-4 pb-6 sm:px-6">
+      <div className="flex flex-1 snap-x snap-mandatory gap-4 overflow-x-auto px-4 pb-6 sm:snap-none sm:px-6">
         {columns.map((col) => (
           <BoardColumn key={col.id} {...props} column={col} tasks={byColumn.get(col.id) ?? []} />
         ))}
@@ -179,7 +179,7 @@ function BoardColumn({
 
   return (
     <section
-      className={`glass flex max-h-full w-[300px] shrink-0 flex-col rounded-3xl transition-colors sm:w-[320px] ${
+      className={`glass flex max-h-full w-[85vw] max-w-[320px] shrink-0 snap-center flex-col rounded-3xl transition-colors sm:w-[320px] ${
         isOver ? "ring-2 ring-accent/50" : ""
       }`}
     >
@@ -276,7 +276,7 @@ function AddColumn({ onAdd }: { onAdd: (name: string) => Promise<void> }) {
   if (!editing) {
     return (
       <button
-        className="glass flex h-14 w-[260px] shrink-0 items-center justify-center gap-2 rounded-3xl text-sm text-muted transition hover:text-foreground"
+        className="glass flex h-14 w-[260px] shrink-0 snap-center items-center justify-center gap-2 rounded-3xl text-sm text-muted transition hover:text-foreground"
         onClick={() => setEditing(true)}
       >
         <Plus size={16} /> Add column

@@ -43,3 +43,6 @@ next-env.d.ts
 
 # netlify
 .netlify
+
+# browser test screenshots
+.playwright-mcp

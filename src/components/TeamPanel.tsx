@@ -34,7 +34,7 @@ export default function TeamPanel(props: TeamPanelProps) {
   }
 
   return (
-    <div className="glass-strong pop-in absolute right-0 z-50 mt-2 w-[min(92vw,380px)] rounded-2xl p-4">
+    <div className="glass-strong pop-in bg-[#141a33]/95 fixed inset-x-3 top-20 z-50 sm:absolute sm:inset-x-auto sm:top-auto sm:right-0 sm:mt-2 sm:w-[380px] rounded-2xl p-4">
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-semibold">Team · {members.length}</h3>
         <button className="text-faint hover:text-foreground" onClick={props.onClose} aria-label="Close">

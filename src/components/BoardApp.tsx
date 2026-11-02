@@ -99,6 +99,17 @@ export default function BoardApp() {
     openTaskRef.current = openTaskId;
   }, [openTaskId]);
 
+  // The team panel closes on any tap outside it, like the notifications panel.
+  const teamRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!inviteOpen) return;
+    const close = (e: MouseEvent) => {
+      if (teamRef.current && !teamRef.current.contains(e.target as Node)) setInviteOpen(false);
+    };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [inviteOpen]);
+
   // ─── Helpers ──────────────────────────────────────────────────────────
 
   const dismissToast = useCallback((id: string) => setToasts((l) => l.filter((t) => t.id !== id)), []);
@@ -697,17 +708,17 @@ export default function BoardApp() {
 
   return (
     <div className="flex h-dvh flex-col" style={brandStyle(workspace.accent_color)}>
-      <header className="glass relative z-30 mx-3 mt-3 flex items-center gap-2 rounded-2xl px-3 py-2 sm:mx-6 sm:gap-3 sm:px-4">
+      <header className="glass relative z-30 mx-3 mt-3 flex items-center gap-1.5 rounded-2xl px-2.5 py-2 sm:mx-6 sm:gap-3 sm:px-4">
         {workspace.logo_url ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={workspace.logo_url} alt={workspace.name} className="h-8 w-auto max-w-32 rounded-lg object-contain" />
+          <img src={workspace.logo_url} alt={workspace.name} className="h-8 w-auto max-w-16 shrink-0 rounded-lg object-contain sm:max-w-32" />
         ) : (
-          <Logo />
+          <Logo compact />
         )}
         <span className="mx-1 hidden h-6 w-px bg-white/15 sm:block" />
 
         <select
-          className="input w-auto max-w-[40vw] py-1.5 text-sm font-medium"
+          className="input min-w-0 flex-1 py-1.5 text-sm font-medium sm:w-auto sm:max-w-[40vw] sm:flex-none"
           value={wsId ?? ""}
           onChange={(e) => switchWorkspace(e.target.value)}
           aria-label="Workspace"
@@ -733,9 +744,9 @@ export default function BoardApp() {
           {live ? "Live" : "Reconnecting…"}
         </span>
 
-        <div className="ml-auto flex items-center gap-1 sm:gap-2">
-          <div className="relative">
-            <button className="btn btn-ghost px-2.5" onClick={() => setInviteOpen(!inviteOpen)} aria-label="Team">
+        <div className="ml-auto flex shrink-0 items-center gap-0.5 sm:gap-2">
+          <div className="relative" ref={teamRef}>
+            <button className="btn btn-ghost px-2 sm:px-2.5" onClick={() => setInviteOpen(!inviteOpen)} aria-label="Team">
               <Users size={19} />
               <span className="hidden sm:inline">Team</span>
             </button>
@@ -758,7 +769,7 @@ export default function BoardApp() {
 
           {isManager && (
             <button
-              className="btn btn-ghost px-2.5"
+              className="btn btn-ghost px-2 sm:px-2.5"
               onClick={() => setSettingsOpen(true)}
               aria-label="Workspace settings"
               title="Workspace settings"
@@ -775,7 +786,7 @@ export default function BoardApp() {
             onMarkAllRead={markAllRead}
           />
 
-          <span className="mx-1 h-6 w-px bg-white/15" />
+          <span className="mx-1 hidden h-6 w-px bg-white/15 sm:block" />
           <button
             className="rounded-full transition hover:-translate-y-0.5"
             onClick={() => setProfileOpen(true)}
@@ -784,7 +795,8 @@ export default function BoardApp() {
           >
             <Avatar profile={me} size={30} />
           </button>
-          <button className="btn btn-ghost px-2.5" onClick={signOut} aria-label="Sign out" title="Sign out">
+          {/* On phones, sign out lives in the profile dialog to keep the header to one row. */}
+          <button className="btn btn-ghost hidden px-2.5 sm:inline-flex" onClick={signOut} aria-label="Sign out" title="Sign out">
             <LogOut size={17} />
           </button>
         </div>
@@ -830,7 +842,7 @@ export default function BoardApp() {
         </div>
 
         <div className="flex flex-1 flex-wrap items-center gap-3 sm:justify-end">
-          <div className="relative w-full sm:w-64">
+          <div className="relative w-full basis-full sm:w-64 sm:basis-auto">
             <Search size={15} className="absolute top-1/2 left-3 -translate-y-1/2 text-faint" />
             <input
               className="input glass py-2 pl-9"
@@ -840,7 +852,7 @@ export default function BoardApp() {
             />
           </div>
 
-          <div className={`flex items-center ${view === "mine" ? "hidden" : ""}`}>
+          <div className={`hidden items-center ${view === "mine" ? "" : "sm:flex"}`}>
             {members.slice(0, 8).map((m) => (
               <button
                 key={m.user_id}
@@ -919,7 +931,9 @@ export default function BoardApp() {
         />
       )}
 
-      {profileOpen && me && <ProfileDialog profile={me} onClose={() => setProfileOpen(false)} onSave={saveProfile} />}
+      {profileOpen && me && (
+        <ProfileDialog profile={me} onClose={() => setProfileOpen(false)} onSave={saveProfile} onSignOut={signOut} />
+      )}
 
       {settingsOpen && isManager && (
         <WorkspaceSettings

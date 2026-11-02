@@ -1,4 +1,4 @@
-export default function Logo({ size = 28 }: { size?: number }) {
+export default function Logo({ size = 28, compact = false }: { size?: number; compact?: boolean }) {
   return (
     <span className="inline-flex items-center gap-2.5">
       <span
@@ -14,7 +14,7 @@ export default function Logo({ size = 28 }: { size?: number }) {
           <path d="M5 12.5l4.2 4.2L19 7" stroke="white" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
       </span>
-      <span className="text-[1.05rem] font-semibold tracking-tight">
+      <span className={`text-[1.05rem] font-semibold tracking-tight ${compact ? "hidden sm:inline" : ""}`}>
         Take<span className="text-accent">Your</span>Task
       </span>
     </span>

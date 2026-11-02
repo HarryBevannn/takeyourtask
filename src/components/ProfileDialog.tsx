@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { X } from "lucide-react";
+import { LogOut, X } from "lucide-react";
 import Avatar from "./Avatar";
 import type { Profile } from "@/lib/types";
 
@@ -9,9 +9,10 @@ interface ProfileDialogProps {
   profile: Profile;
   onClose: () => void;
   onSave: (patch: Pick<Profile, "full_name" | "email_notifications">) => Promise<boolean>;
+  onSignOut: () => void;
 }
 
-export default function ProfileDialog({ profile, onClose, onSave }: ProfileDialogProps) {
+export default function ProfileDialog({ profile, onClose, onSave, onSignOut }: ProfileDialogProps) {
   const [name, setName] = useState(profile.full_name);
   const [emails, setEmails] = useState(profile.email_notifications ?? true);
   const [saving, setSaving] = useState(false);
@@ -79,8 +80,11 @@ export default function ProfileDialog({ profile, onClose, onSave }: ProfileDialo
           </span>
         </label>
 
-        <div className="mt-6 flex justify-end gap-2">
-          <button type="button" className="btn btn-ghost" onClick={onClose}>
+        <div className="mt-6 flex items-center gap-2 pb-12 sm:pb-0">
+          <button type="button" className="btn btn-ghost px-2.5 text-muted hover:text-danger" onClick={onSignOut}>
+            <LogOut size={15} /> Sign out
+          </button>
+          <button type="button" className="btn btn-ghost ml-auto" onClick={onClose}>
             Cancel
           </button>
           <button type="submit" className="btn btn-primary" disabled={saving}>

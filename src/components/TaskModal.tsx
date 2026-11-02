@@ -116,246 +116,248 @@ export default function TaskModal(props: TaskModalProps) {
           </div>
         </header>
 
-        <div className="grid flex-1 gap-6 overflow-x-hidden overflow-y-auto p-6 md:grid-cols-[1fr_260px]">
-          <div className="min-w-0 space-y-6">
-            <textarea
-              key={`title:${textKey}`}
-              className="w-full resize-none bg-transparent text-xl font-semibold outline-none"
-              rows={1}
-              defaultValue={task.title}
-              maxLength={200}
-              onBlur={(e) => {
-                const v = e.target.value.trim();
-                if (v && v !== task.title) onUpdate({ title: v });
-              }}
-              onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), e.currentTarget.blur())}
-            />
+        <div className="flex-1 overflow-x-hidden overflow-y-auto">
+          <textarea
+            key={`title:${textKey}`}
+            className="block w-full resize-none bg-transparent px-6 pt-6 text-xl font-semibold outline-none"
+            rows={1}
+            defaultValue={task.title}
+            maxLength={200}
+            onBlur={(e) => {
+              const v = e.target.value.trim();
+              if (v && v !== task.title) onUpdate({ title: v });
+            }}
+            onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), e.currentTarget.blur())}
+          />
 
-            <div>
-              <span className="label">Description</span>
-              <textarea
-                key={`desc:${textKey}`}
-                className="input min-h-24 resize-y"
-                placeholder="Add instructions, access notes, supplies needed…"
-                defaultValue={task.description}
-                onBlur={(e) => e.target.value !== task.description && onUpdate({ description: e.target.value })}
-              />
-            </div>
-
-            <div>
-              <div className="mb-2 flex items-center gap-3">
-                <span className="label mb-0">Checklist</span>
-                {items.length > 0 && (
-                  <>
-                    <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-white/10">
-                      <div
-                        className="h-full rounded-full bg-gradient-to-r from-accent to-success transition-all"
-                        style={{ width: `${(done / items.length) * 100}%` }}
-                      />
-                    </div>
-                    <span className="text-xs text-muted">
-                      {done}/{items.length}
-                    </span>
-                  </>
-                )}
-              </div>
-              <ul className="space-y-1">
-                {items.map((item) => (
-                  <li key={item.id} className="group flex items-center gap-3 rounded-xl px-2 py-1.5 hover:bg-white/5">
-                    <button
-                      className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-md border transition ${
-                        item.done ? "border-success bg-success text-[#06231a]" : "border-white/30 hover:border-white/60"
-                      }`}
-                      onClick={() => props.onToggleChecklist(item)}
-                      aria-label={item.done ? "Mark not done" : "Mark done"}
-                    >
-                      {item.done && <Check size={13} strokeWidth={3} />}
-                    </button>
-                    <span className={`flex-1 text-sm ${item.done ? "text-faint line-through" : ""}`}>{item.label}</span>
-                    <button
-                      className="text-faint opacity-0 transition group-hover:opacity-100 hover:text-danger"
-                      onClick={() => props.onDeleteChecklist(item.id)}
-                      aria-label="Remove item"
-                    >
-                      <X size={14} />
-                    </button>
-                  </li>
-                ))}
-              </ul>
-              <form
-                className="mt-2"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  if (newItem.trim()) props.onAddChecklist(newItem.trim());
-                  setNewItem("");
-                }}
-              >
-                <input
-                  className="input"
-                  placeholder="Add an item and press Enter"
-                  value={newItem}
-                  maxLength={200}
-                  onChange={(e) => setNewItem(e.target.value)}
+          <div className="grid gap-6 p-6 pt-4 md:grid-cols-[1fr_260px]">
+            <div className="min-w-0 space-y-6">
+              <div>
+                <span className="label">Description</span>
+                <textarea
+                  key={`desc:${textKey}`}
+                  className="input min-h-24 resize-y"
+                  placeholder="Add instructions, access notes, supplies needed…"
+                  defaultValue={task.description}
+                  onBlur={(e) => e.target.value !== task.description && onUpdate({ description: e.target.value })}
                 />
-              </form>
-            </div>
-
-            <TaskPhotos
-              attachments={props.attachments}
-              currentUserId={props.currentUserId}
-              isManager={props.isManager}
-              onAdd={props.onAddPhoto}
-              onDelete={props.onDeletePhoto}
-            />
-
-            <div>
-              <span className="label">Activity</span>
-              <div className="flex gap-3">
-                <Avatar profile={profileById.get(props.currentUserId)} size={30} />
-                <div className="flex-1">
-                  <textarea
-                    className="input min-h-16 resize-none"
-                    placeholder="Add a comment… (Ctrl+Enter to send)"
-                    value={comment}
-                    maxLength={2000}
-                    onChange={(e) => setComment(e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && (e.ctrlKey || e.metaKey) && sendComment()}
-                  />
-                  <button className="btn btn-primary mt-2" onClick={sendComment} disabled={sending || !comment.trim()}>
-                    <Send size={14} /> Comment
-                  </button>
-                </div>
               </div>
-              <ul className="mt-5 space-y-4">
-                {activity.map((entry) => {
-                  if (entry.kind === "event") {
-                    const e = entry.item;
-                    const actor = e.actor_id ? profileById.get(e.actor_id) : undefined;
+
+              <div>
+                <div className="mb-2 flex items-center gap-3">
+                  <span className="label mb-0">Checklist</span>
+                  {items.length > 0 && (
+                    <>
+                      <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-white/10">
+                        <div
+                          className="h-full rounded-full bg-gradient-to-r from-accent to-success transition-all"
+                          style={{ width: `${(done / items.length) * 100}%` }}
+                        />
+                      </div>
+                      <span className="text-xs text-muted">
+                        {done}/{items.length}
+                      </span>
+                    </>
+                  )}
+                </div>
+                <ul className="space-y-1">
+                  {items.map((item) => (
+                    <li key={item.id} className="group flex items-center gap-3 rounded-xl px-2 py-1.5 hover:bg-white/5">
+                      <button
+                        className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-md border transition ${
+                          item.done ? "border-success bg-success text-[#06231a]" : "border-white/30 hover:border-white/60"
+                        }`}
+                        onClick={() => props.onToggleChecklist(item)}
+                        aria-label={item.done ? "Mark not done" : "Mark done"}
+                      >
+                        {item.done && <Check size={13} strokeWidth={3} />}
+                      </button>
+                      <span className={`flex-1 text-sm ${item.done ? "text-faint line-through" : ""}`}>{item.label}</span>
+                      <button
+                        className="text-faint opacity-0 transition group-hover:opacity-100 hover:text-danger"
+                        onClick={() => props.onDeleteChecklist(item.id)}
+                        aria-label="Remove item"
+                      >
+                        <X size={14} />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+                <form
+                  className="mt-2"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    if (newItem.trim()) props.onAddChecklist(newItem.trim());
+                    setNewItem("");
+                  }}
+                >
+                  <input
+                    className="input"
+                    placeholder="Add an item and press Enter"
+                    value={newItem}
+                    maxLength={200}
+                    onChange={(e) => setNewItem(e.target.value)}
+                  />
+                </form>
+              </div>
+
+              <TaskPhotos
+                attachments={props.attachments}
+                currentUserId={props.currentUserId}
+                isManager={props.isManager}
+                onAdd={props.onAddPhoto}
+                onDelete={props.onDeletePhoto}
+              />
+
+              <div>
+                <span className="label">Activity</span>
+                <div className="flex gap-3">
+                  <Avatar profile={profileById.get(props.currentUserId)} size={30} />
+                  <div className="flex-1">
+                    <textarea
+                      className="input min-h-16 resize-none"
+                      placeholder="Add a comment… (Ctrl+Enter to send)"
+                      value={comment}
+                      maxLength={2000}
+                      onChange={(e) => setComment(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && (e.ctrlKey || e.metaKey) && sendComment()}
+                    />
+                    <button className="btn btn-primary mt-2" onClick={sendComment} disabled={sending || !comment.trim()}>
+                      <Send size={14} /> Comment
+                    </button>
+                  </div>
+                </div>
+                <ul className="mt-5 space-y-4">
+                  {activity.map((entry) => {
+                    if (entry.kind === "event") {
+                      const e = entry.item;
+                      const actor = e.actor_id ? profileById.get(e.actor_id) : undefined;
+                      return (
+                        <li key={`e:${e.id}`} className="flex items-center gap-3 pl-1.5 text-xs text-faint">
+                          <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-white/25" />
+                          <span>
+                            <span className="text-muted">{actor ? displayName(actor) : "Someone"}</span> {e.message} ·{" "}
+                            {timeAgo(e.created_at)}
+                          </span>
+                        </li>
+                      );
+                    }
+                    const c = entry.item;
+                    const author = c.author_id ? profileById.get(c.author_id) : undefined;
                     return (
-                      <li key={`e:${e.id}`} className="flex items-center gap-3 pl-1.5 text-xs text-faint">
-                        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-white/25" />
-                        <span>
-                          <span className="text-muted">{actor ? displayName(actor) : "Someone"}</span> {e.message} ·{" "}
-                          {timeAgo(e.created_at)}
-                        </span>
+                      <li key={`c:${c.id}`} className="group pop-in flex gap-3">
+                        <Avatar profile={author} size={30} />
+                        <div className="min-w-0 flex-1">
+                          <p className="flex items-center gap-2 text-sm">
+                            <span className="font-medium">{displayName(author)}</span>
+                            <span className="text-xs text-faint">{timeAgo(c.created_at)}</span>
+                            {c.author_id === props.currentUserId && (
+                              <button
+                                className="ml-auto text-xs text-faint opacity-0 transition group-hover:opacity-100 hover:text-danger focus:opacity-100"
+                                onClick={() => confirm("Delete this comment?") && props.onDeleteComment(c.id)}
+                              >
+                                Delete
+                              </button>
+                            )}
+                          </p>
+                          <p className="mt-1 text-sm whitespace-pre-wrap text-muted">{c.body}</p>
+                        </div>
                       </li>
                     );
-                  }
-                  const c = entry.item;
-                  const author = c.author_id ? profileById.get(c.author_id) : undefined;
-                  return (
-                    <li key={`c:${c.id}`} className="group pop-in flex gap-3">
-                      <Avatar profile={author} size={30} />
-                      <div className="min-w-0 flex-1">
-                        <p className="flex items-center gap-2 text-sm">
-                          <span className="font-medium">{displayName(author)}</span>
-                          <span className="text-xs text-faint">{timeAgo(c.created_at)}</span>
-                          {c.author_id === props.currentUserId && (
-                            <button
-                              className="ml-auto text-xs text-faint opacity-0 transition group-hover:opacity-100 hover:text-danger focus:opacity-100"
-                              onClick={() => confirm("Delete this comment?") && props.onDeleteComment(c.id)}
-                            >
-                              Delete
-                            </button>
-                          )}
-                        </p>
-                        <p className="mt-1 text-sm whitespace-pre-wrap text-muted">{c.body}</p>
-                      </div>
-                    </li>
-                  );
-                })}
-              </ul>
+                  })}
+                </ul>
+              </div>
             </div>
-          </div>
 
-          <aside className="space-y-4">
-            <Field label="Status">
-              <select
-                className="input"
-                value={task.column_id}
-                onChange={(e) => onUpdate({ column_id: e.target.value })}
-              >
-                {columns.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
-            </Field>
-
-            <Field label="Assignee">
-              <select
-                className="input"
-                value={task.assignee_id ?? ""}
-                onChange={(e) => onUpdate({ assignee_id: e.target.value || null })}
-              >
-                <option value="">Unassigned</option>
-                {members.map((m) => (
-                  <option key={m.user_id} value={m.user_id}>
-                    {displayName(m.profile)}
-                  </option>
-                ))}
-              </select>
-            </Field>
-
-            {fields.showPriority && (
-              <Field label="Priority">
+            <aside className="order-first grid grid-cols-2 gap-3 md:order-none md:block md:space-y-4">
+              <Field label="Status">
                 <select
                   className="input"
-                  value={task.priority}
-                  onChange={(e) => onUpdate({ priority: e.target.value as Priority })}
-                  style={{ color: PRIORITIES[task.priority].color }}
+                  value={task.column_id}
+                  onChange={(e) => onUpdate({ column_id: e.target.value })}
                 >
-                  {PRIORITY_ORDER.map((p) => (
-                    <option key={p} value={p}>
-                      {fields.priorityLabels[p]}
+                  {columns.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
                     </option>
                   ))}
                 </select>
               </Field>
-            )}
 
-            <Field label="Due date">
-              <input
-                type="date"
-                className="input"
-                value={task.due_date ?? ""}
-                onChange={(e) => onUpdate({ due_date: e.target.value || null })}
-              />
-            </Field>
-
-            {fields.showLocation && (
-              <Field label={fields.locationLabel}>
-                <div className="relative">
-                  <MapPin size={14} className="absolute top-1/2 left-3 -translate-y-1/2 text-faint" />
-                  <input
-                    key={`loc:${textKey}`}
-                    className="input pl-8"
-                    placeholder={fields.locationLabel === "Location" ? "Room, floor or area" : fields.locationLabel}
-                    defaultValue={task.location}
-                    maxLength={120}
-                    onBlur={(e) => e.target.value !== task.location && onUpdate({ location: e.target.value })}
-                  />
-                </div>
+              <Field label="Assignee">
+                <select
+                  className="input"
+                  value={task.assignee_id ?? ""}
+                  onChange={(e) => onUpdate({ assignee_id: e.target.value || null })}
+                >
+                  <option value="">Unassigned</option>
+                  {members.map((m) => (
+                    <option key={m.user_id} value={m.user_id}>
+                      {displayName(m.profile)}
+                    </option>
+                  ))}
+                </select>
               </Field>
-            )}
 
-            <p className="pt-2 text-xs text-faint">
-              Created {timeAgo(task.created_at)}
-              {task.created_by && profileById.get(task.created_by)
-                ? ` by ${displayName(profileById.get(task.created_by))}`
-                : ""}
-              <br />
-              Updated {timeAgo(task.updated_at)}
-            </p>
-          </aside>
+              {fields.showPriority && (
+                <Field label="Priority">
+                  <select
+                    className="input"
+                    value={task.priority}
+                    onChange={(e) => onUpdate({ priority: e.target.value as Priority })}
+                    style={{ color: PRIORITIES[task.priority].color }}
+                  >
+                    {PRIORITY_ORDER.map((p) => (
+                      <option key={p} value={p}>
+                        {fields.priorityLabels[p]}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+              )}
+
+              <Field label="Due date">
+                <input
+                  type="date"
+                  className="input"
+                  value={task.due_date ?? ""}
+                  onChange={(e) => onUpdate({ due_date: e.target.value || null })}
+                />
+              </Field>
+
+              {fields.showLocation && (
+                <Field label={fields.locationLabel} className="col-span-2">
+                  <div className="relative">
+                    <MapPin size={14} className="absolute top-1/2 left-3 -translate-y-1/2 text-faint" />
+                    <input
+                      key={`loc:${textKey}`}
+                      className="input pl-8"
+                      placeholder={fields.locationLabel === "Location" ? "Room, floor or area" : fields.locationLabel}
+                      defaultValue={task.location}
+                      maxLength={120}
+                      onBlur={(e) => e.target.value !== task.location && onUpdate({ location: e.target.value })}
+                    />
+                  </div>
+                </Field>
+              )}
+
+              <p className="col-span-2 pt-2 text-xs text-faint">
+                Created {timeAgo(task.created_at)}
+                {task.created_by && profileById.get(task.created_by)
+                  ? ` by ${displayName(profileById.get(task.created_by))}`
+                  : ""}
+                <br />
+                Updated {timeAgo(task.updated_at)}
+              </p>
+            </aside>
+          </div>
         </div>
 
-        <footer className="flex items-center gap-3 border-t border-white/10 px-6 py-3">
-          <span className="flex items-center gap-1.5 text-xs text-faint">
+        <footer className="flex flex-col-reverse gap-2 border-t border-white/10 px-6 py-3 pb-16 sm:flex-row sm:pb-3 sm:items-center sm:gap-3">
+          <span className="flex items-center justify-center gap-1.5 text-xs text-faint">
             <Check size={13} className="text-success" /> Changes save automatically
           </span>
-          <button className="btn btn-primary ml-auto px-5" onClick={saveAndClose} disabled={sending}>
+          <button className="btn btn-primary w-full px-5 py-2.5 sm:ml-auto sm:w-auto sm:py-2" onClick={saveAndClose} disabled={sending}>
             <Check size={15} /> Save
           </button>
         </footer>
@@ -364,9 +366,9 @@ export default function TaskModal(props: TaskModalProps) {
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({ label, className, children }: { label: string; className?: string; children: React.ReactNode }) {
   return (
-    <div>
+    <div className={className}>
       <span className="label">{label}</span>
       {children}
     </div>

@@ -291,12 +291,12 @@ export default function WorkspaceSettings({ workspace, onClose, onSave, onUpload
           </Section>
         </div>
 
-        <footer className="flex items-center gap-3 border-t border-white/10 px-6 py-4">
-          {error && <p className="text-sm text-danger">{error}</p>}
-          <button className="btn btn-ghost ml-auto" onClick={onClose}>
+        <footer className="flex flex-wrap items-center gap-3 border-t border-white/10 px-6 py-4 pb-16 sm:pb-4">
+          {error && <p className="w-full text-sm text-danger sm:w-auto">{error}</p>}
+          <button className="btn btn-ghost flex-1 sm:ml-auto sm:flex-none" onClick={onClose}>
             Cancel
           </button>
-          <button className="btn btn-primary" onClick={save} disabled={saving || uploading}>
+          <button className="btn btn-primary flex-1 sm:flex-none" onClick={save} disabled={saving || uploading}>
             {saving ? "Saving…" : "Save changes"}
           </button>
         </footer>

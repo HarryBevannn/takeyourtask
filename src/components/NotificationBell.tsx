@@ -47,7 +47,7 @@ export default function NotificationBell({
       </button>
 
       {open && (
-        <div className="glass-strong pop-in absolute right-0 z-50 mt-2 w-[min(92vw,380px)] overflow-hidden rounded-2xl">
+        <div className="glass-strong pop-in bg-[#141a33]/95 fixed inset-x-3 top-20 z-50 sm:absolute sm:inset-x-auto sm:top-auto sm:right-0 sm:mt-2 sm:w-[380px] overflow-hidden rounded-2xl">
           <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
             <h3 className="text-sm font-semibold">Notifications</h3>
             {unread > 0 && (
